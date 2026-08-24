@@ -1,4 +1,4 @@
-"""End-to-end pipeline: ingest documents, ask a question, inspect contexts.
+"""End-to-end pipeline: ingest documents with metadata, ask a question, inspect contexts.
 
 Run with: python examples/basic_pipeline.py
 """
@@ -27,15 +27,19 @@ def main() -> str:
         reranker=HeuristicReranker(),
     )
     for doc_id, text in DOCS.items():
-        pipeline.ingest(doc_id, text)
+        pipeline.ingest(doc_id, text, metadata={"source_url": f"https://encyclopedia.org/{doc_id}"})
 
     rag_answer = pipeline.answer("How tall is the Eiffel Tower?", k=2)
 
     print(f"Query: {rag_answer.query}")
-    print(f"Answer: {rag_answer.answer}\n")
+    print(f"Answer: {rag_answer.answer}")
+    print(f"Retrieval Latency: {rag_answer.retrieval_latency_ms:.2f} ms\n")
     print("Retrieved contexts:")
     for context in rag_answer.contexts:
-        print(f"  [{context.doc_id}] score={context.score:.3f} :: {context.text}")
+        print(
+            f"  [{context.doc_id}] score={context.score:.3f} | "
+            f"source={context.provenance} :: {context.text}"
+        )
 
     return rag_answer.answer
 

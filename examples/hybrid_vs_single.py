@@ -10,6 +10,7 @@ Run with: python examples/hybrid_vs_single.py
 """
 
 import re
+import zlib
 
 from ragforge.chunking import Chunk
 from ragforge.index import BM25Index, HybridRetriever, VectorIndex
@@ -27,7 +28,8 @@ def toy_semantic_embed(text: str, dims: int = 4096) -> list[float]:
     vector = [0.0] * dims
     for word in re.findall(r"[a-z0-9]+", text.lower()):
         canonical = _SYNONYMS.get(word, word)
-        vector[hash(canonical) % dims] += 1.0
+        token_hash = zlib.crc32(canonical.encode("utf-8"))
+        vector[token_hash % dims] += 1.0
     return vector
 
 
