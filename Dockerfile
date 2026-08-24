@@ -8,4 +8,6 @@ COPY examples/ examples/
 
 RUN pip install --no-cache-dir .
 
-CMD ["python", "examples/basic_pipeline.py"]
+ENTRYPOINT ["ragforge"]
+CMD ["benchmark"]
+

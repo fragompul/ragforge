@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +25,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Check code formatting with ruff
+        run: ruff format --check src tests examples
+
       - name: Lint with ruff
         run: ruff check src tests examples
 
       - name: Type-check with mypy
         run: mypy src
 
-      - name: Run tests with coverage
-        run: pytest --cov=ragforge --cov-report=term-missing
+      - name: Run tests with coverage threshold
+        run: pytest --cov=ragforge --cov-report=term-missing --cov-fail-under=90
+
+      - name: CLI smoke test & benchmark
+        run: ragforge benchmark
 
   docker-build:
     runs-on: ubuntu-latest
@@ -40,3 +46,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Docker image
         run: docker build -t ragforge:ci .
+      - name: Smoke test Docker container
+        run: docker run --rm ragforge:ci benchmark
+
