@@ -1,28 +1,87 @@
-"""ragforge: a production-hardened, dependency-minimal RAG pipeline."""
+"""ragforge: production-hardened, dependency-minimal RAG pipeline."""
 
-from ragforge.chunking import Chunk, FixedSizeChunker, SentenceChunker
-from ragforge.embeddings import hashing_embed
-from ragforge.evaluation import EvalCase, EvalResult, evaluate_pipeline
-from ragforge.index import BM25Index, HybridRetriever, VectorIndex
-from ragforge.pipeline import RagPipeline, RetrievedChunk
-from ragforge.reranking import HeuristicReranker, NoopReranker, Reranker
+from ragforge.chunking import (
+    Chunk,
+    Chunker,
+    FixedSizeChunker,
+    MarkdownChunker,
+    RecursiveCharacterChunker,
+    SentenceChunker,
+)
+from ragforge.embeddings import (
+    BatchEmbedFn,
+    EmbedFn,
+    cosine_similarity,
+    hashing_embed,
+    normalize_vector,
+)
+from ragforge.evaluation import (
+    EvalCase,
+    EvalResult,
+    EvaluationSummary,
+    evaluate_pipeline,
+)
+from ragforge.index import (
+    BM25Index,
+    FilterFn,
+    HybridRetriever,
+    ScoredChunk,
+    VectorIndex,
+)
+from ragforge.pipeline import (
+    GenerateFn,
+    PromptFormatter,
+    RagAnswer,
+    RagPipeline,
+    RetrievedChunk,
+    default_prompt_formatter,
+)
+from ragforge.reranking import (
+    CrossEncoderReranker,
+    HeuristicReranker,
+    MaxMarginalRelevanceReranker,
+    NoopReranker,
+    Reranker,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
+    # Chunking
     "Chunk",
+    "Chunker",
     "FixedSizeChunker",
     "SentenceChunker",
+    "RecursiveCharacterChunker",
+    "MarkdownChunker",
+    # Embeddings
+    "EmbedFn",
+    "BatchEmbedFn",
     "hashing_embed",
+    "cosine_similarity",
+    "normalize_vector",
+    # Indices & Retrieval
     "BM25Index",
     "VectorIndex",
     "HybridRetriever",
+    "ScoredChunk",
+    "FilterFn",
+    # Reranking
     "Reranker",
-    "HeuristicReranker",
     "NoopReranker",
+    "HeuristicReranker",
+    "CrossEncoderReranker",
+    "MaxMarginalRelevanceReranker",
+    # Pipeline & Answers
     "RagPipeline",
     "RetrievedChunk",
+    "RagAnswer",
+    "GenerateFn",
+    "PromptFormatter",
+    "default_prompt_formatter",
+    # Evaluation
     "EvalCase",
     "EvalResult",
+    "EvaluationSummary",
     "evaluate_pipeline",
 ]
