@@ -15,17 +15,21 @@ flowchart TD
         RawDocs --> Chunker --> Chunks
     end
 
-    subgraph Indexing["2. Dual Dual-Index Ingestion"]
+    subgraph Indexing["2. Dual-Index Ingestion"]
         BM25["BM25Index\n(Sparse Lexical / Okapi BM25+)"]
-        Vector["VectorIndex\n(Dense Semantic / Embedding)"]
+        Vector["VectorIndex or ApproxVectorIndex\n(Brute-Force Cosine or HNSW)"]
         Chunks --> BM25
         Chunks --> Vector
     end
 
     subgraph Retrieval["3. Hybrid Retrieval & Filtering"]
         Query["User Query"]
+        MultiQuery["MultiQueryRetriever\n(optional query rewriting fan-out)"]
         Filter["Metadata Filter\n(filter_fn: category, tenant, etc.)"]
         RRF["Weighted Reciprocal Rank Fusion (RRF)\nscore = Σ (w_i / (k_rrf + rank_i))"]
+        Query -.->|query_expansion_fn| MultiQuery
+        MultiQuery -.-> BM25
+        MultiQuery -.-> Vector
         Query --> BM25
         Query --> Vector
         Filter -.-> BM25
@@ -108,6 +112,19 @@ flowchart TB
 Indices serialize cleanly to JSON:
 - Offline batch indexing jobs build and save the index (`pipeline.save("index.json")`).
 - Online serving instances load pre-built indices (`RagPipeline.load("index.json")`) without re-computing embeddings on startup.
+- `ragforge serve` (built on stdlib `http.server`) loads a saved index and exposes it as a JSON API, without changing anything about how the index was built.
+
+### E. HNSW as a Pluggable Backend, Not a Rewrite
+- **The Problem:** `VectorIndex`'s brute-force cosine scan is exact but `O(n)` per query -- adequate for thousands of chunks, a bottleneck at millions.
+- **The Solution:** `ApproxVectorIndex` implements the same public surface (`add`, `delete`, `search`, `to_dict`/`from_dict`) over a from-scratch HNSW graph (`src/ragforge/ann.py`), satisfying a shared `VectorSearchable` protocol so `HybridRetriever` and `RagPipeline` never branch on which backend is active. Selecting it is a single `use_ann=True` flag; persistence records which backend was used so `load()` reconstructs the same one.
+
+### F. Multi-Query Retrieval Reuses RRF Instead of a New Fusion Strategy
+- **The Problem:** Hybrid RRF fuses lexical and semantic signal for *one* phrasing of a query; a paraphrase sharing no vocabulary with the target chunk can still miss entirely.
+- **The Solution:** `MultiQueryRetriever` fans a query out into rewritten variants (`QueryExpansionFn`) and retrieves each independently, then fuses all result lists -- original query included -- with the *same* weighted RRF formula used for BM25/vector fusion (see Decision A). One fusion primitive, reused at both the multi-signal and multi-phrasing level.
+
+### G. Lazy-Import Adapters Instead of Optional Dependencies
+- **The Problem:** Real embedding providers (OpenAI, Cohere, sentence-transformers) and observability backends (OpenTelemetry) are essential in production but would compromise the zero-required-dependency core if imported eagerly.
+- **The Solution:** `src/ragforge/embeddings_providers.py` and `otel_exporter` in `src/ragforge/telemetry.py` import their client library *inside* the factory function, only when actually called, raising a clear `ImportError` with the exact `pip install` command otherwise. `import ragforge` never requires any of them.
 
 ---
 
