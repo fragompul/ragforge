@@ -26,10 +26,10 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Check code formatting with ruff
-        run: ruff format --check src tests examples
+        run: ruff format --check src tests examples scripts
 
       - name: Lint with ruff
-        run: ruff check src tests examples
+        run: ruff check src tests examples scripts
 
       - name: Type-check with mypy
         run: mypy src
