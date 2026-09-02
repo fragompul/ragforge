@@ -15,8 +15,9 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
+from ragforge.ann import HNSWIndex
 from ragforge.chunking import Chunk
 from ragforge.embeddings import EmbedFn, cosine_similarity, hashing_embed
 
@@ -266,6 +267,153 @@ class VectorIndex:
         return cls.from_dict(data, embed_fn=embed_fn)
 
 
+@runtime_checkable
+class VectorSearchable(Protocol):
+    """Structural type shared by ``VectorIndex`` and ``ApproxVectorIndex``.
+
+    ``RagPipeline`` and ``HybridRetriever`` depend on this narrow protocol
+    rather than a concrete class, letting callers swap brute-force cosine
+    scan for approximate HNSW search (or any future backend) without
+    touching orchestration, fusion, or reranking code.
+    """
+
+    def add(self, chunks: list[Chunk]) -> None: ...
+
+    def delete(self, doc_id: str) -> int: ...
+
+    def clear(self) -> None: ...
+
+    def search(
+        self, query: str, k: int, filter_fn: FilterFn | None = None
+    ) -> list[ScoredChunk]: ...
+
+    def to_dict(self) -> dict[str, Any]: ...
+
+
+class ApproxVectorIndex:
+    """Approximate dense vector index backed by the from-scratch HNSW graph.
+
+    Drop-in alternative to :class:`VectorIndex` implementing the same public
+    surface (``add``, ``add_vectors``, ``delete``, ``clear``, ``search``,
+    ``to_dict``/``from_dict``, ``save``/``load``), trading exact brute-force
+    cosine ranking for expected ``O(log n)`` query time via
+    :class:`ragforge.ann.HNSWIndex`.
+
+    Use this once a corpus grows large enough that linear scan becomes the
+    retrieval bottleneck (see ``docs/benchmarks.md`` for measured crossover
+    points); below that, ``VectorIndex`` is simpler and equally fast in
+    absolute terms.
+
+    Filtering caveat: HNSW graph traversal cannot apply ``filter_fn`` while
+    walking the graph (unlike the brute-force index, which filters every
+    candidate). Filtered searches instead over-fetch nearest neighbors and
+    filter the result set, which can under-return results when a filter is
+    very selective relative to ``ef_search`` -- a well-known limitation of
+    graph-based ANN indices also present in production systems (e.g. HNSWLIB,
+    Qdrant's pre-filtering mode).
+    """
+
+    def __init__(
+        self,
+        embed_fn: EmbedFn = hashing_embed,
+        m: int = 16,
+        ef_construction: int = 200,
+        ef_search: int = 50,
+    ) -> None:
+        self.embed_fn = embed_fn
+        self.ef_search = ef_search
+        self._graph = HNSWIndex(m=m, ef_construction=ef_construction)
+        self._chunks_by_node: dict[int, Chunk] = {}
+
+    def add(self, chunks: list[Chunk]) -> None:
+        """Embed and index new chunks."""
+        for chunk in chunks:
+            self.add_vectors([chunk], [self.embed_fn(chunk.text)])
+
+    def add_vectors(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
+        """Index chunks with precomputed embeddings."""
+        if len(chunks) != len(vectors):
+            raise ValueError(f"Mismatch: {len(chunks)} chunks provided with {len(vectors)} vectors")
+        for chunk, vector in zip(chunks, vectors, strict=True):
+            node_id = self._graph.add(vector)
+            self._chunks_by_node[node_id] = chunk
+
+    def delete(self, doc_id: str) -> int:
+        """Tombstone all chunks for a given document (see class docstring)."""
+        removed = 0
+        for node_id, chunk in list(self._chunks_by_node.items()):
+            if chunk.doc_id == doc_id:
+                self._graph.mark_deleted(node_id)
+                del self._chunks_by_node[node_id]
+                removed += 1
+        return removed
+
+    def clear(self) -> None:
+        """Clear all indexed chunks and rebuild an empty graph."""
+        self._graph = HNSWIndex(
+            m=self._graph.m,
+            ef_construction=self._graph.ef_construction,
+            seed=self._graph.seed,
+        )
+        self._chunks_by_node.clear()
+
+    def search(
+        self, query: str, k: int = 5, filter_fn: FilterFn | None = None
+    ) -> list[ScoredChunk]:
+        """Search the HNSW graph with optional (over-fetch based) metadata filtering."""
+        if k <= 0 or not self._chunks_by_node:
+            return []
+
+        query_vec = self.embed_fn(query)
+        fetch_k = (
+            k if filter_fn is None else min(len(self._chunks_by_node), max(k * 10, self.ef_search))
+        )
+        raw = self._graph.search(query_vec, k=fetch_k, ef_search=max(self.ef_search, fetch_k))
+
+        scored: list[ScoredChunk] = []
+        for sim, node_id in raw:
+            chunk = self._chunks_by_node.get(node_id)
+            if chunk is None:
+                continue
+            if filter_fn is not None and not filter_fn(chunk):
+                continue
+            scored.append(ScoredChunk(chunk=chunk, score=sim, provenance="vector:hnsw"))
+            if len(scored) >= k:
+                break
+
+        return scored
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the HNSW graph and chunk mapping to a dictionary."""
+        return {
+            "ef_search": self.ef_search,
+            "graph": self._graph.to_dict(),
+            "chunks_by_node": {str(k): c.to_dict() for k, c in self._chunks_by_node.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], embed_fn: EmbedFn | None = None) -> ApproxVectorIndex:
+        """Deserialize an approximate vector index from a dictionary."""
+        index = cls(embed_fn=embed_fn or hashing_embed, ef_search=data.get("ef_search", 50))
+        index._graph = HNSWIndex.from_dict(data["graph"])
+        index._chunks_by_node = {
+            int(k): Chunk.from_dict(v) for k, v in data.get("chunks_by_node", {}).items()
+        }
+        return index
+
+    def save(self, path: str | Path) -> None:
+        """Save the index to a JSON file."""
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    @classmethod
+    def load(cls, path: str | Path, embed_fn: EmbedFn | None = None) -> ApproxVectorIndex:
+        """Load an index from a JSON file."""
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return cls.from_dict(data, embed_fn=embed_fn)
+
+
 class HybridRetriever:
     """Combines BM25 sparse retrieval and dense vector retrieval using Reciprocal Rank Fusion (RRF).
 
@@ -276,7 +424,7 @@ class HybridRetriever:
     def __init__(
         self,
         bm25_index: BM25Index,
-        vector_index: VectorIndex,
+        vector_index: VectorSearchable,
         k_rrf: int = 60,
         weight_bm25: float = 1.0,
         weight_vector: float = 1.0,

@@ -46,6 +46,12 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--chunk-overlap", type=int, default=50, help="Chunk overlap in characters"
     )
+    ingest_parser.add_argument(
+        "--ann",
+        action="store_true",
+        help="Use the approximate HNSW vector backend instead of brute-force cosine scan "
+        "(recommended for large corpora; see docs/benchmarks.md)",
+    )
 
     # Query subcommand
     query_parser = subparsers.add_parser("query", help="Query an indexed RAG pipeline")
@@ -103,7 +109,7 @@ def handle_ingest(args: argparse.Namespace) -> int:
     chunker = RecursiveCharacterChunker(
         chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap
     )
-    pipeline = RagPipeline(chunker=chunker)
+    pipeline = RagPipeline(chunker=chunker, use_ann=args.ann)
 
     files_to_ingest: list[Path] = []
     if source_path.is_file():
@@ -134,9 +140,10 @@ def handle_ingest(args: argparse.Namespace) -> int:
     output_index = Path(args.index)
     pipeline.save(output_index)
 
+    backend = "HNSW (approximate)" if args.ann else "brute-force (exact)"
     print(
         f"Successfully ingested {len(files_to_ingest)} documents "
-        f"({total_chunks} chunks) in {elapsed:.3f}s"
+        f"({total_chunks} chunks) in {elapsed:.3f}s using the {backend} vector backend"
     )
     print(f"Saved pipeline index to: {output_index.resolve()}")
     return 0

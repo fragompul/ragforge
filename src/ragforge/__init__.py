@@ -1,5 +1,6 @@
 """ragforge: production-hardened, dependency-minimal RAG pipeline."""
 
+from ragforge.ann import HNSWIndex
 from ragforge.chunking import (
     Chunk,
     Chunker,
@@ -22,11 +23,13 @@ from ragforge.evaluation import (
     evaluate_pipeline,
 )
 from ragforge.index import (
+    ApproxVectorIndex,
     BM25Index,
     FilterFn,
     HybridRetriever,
     ScoredChunk,
     VectorIndex,
+    VectorSearchable,
 )
 from ragforge.pipeline import (
     GenerateFn,
@@ -63,6 +66,9 @@ __all__ = [
     # Indices & Retrieval
     "BM25Index",
     "VectorIndex",
+    "ApproxVectorIndex",
+    "VectorSearchable",
+    "HNSWIndex",
     "HybridRetriever",
     "ScoredChunk",
     "FilterFn",

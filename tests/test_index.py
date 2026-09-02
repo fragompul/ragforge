@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from ragforge.chunking import Chunk
-from ragforge.index import BM25Index, HybridRetriever, VectorIndex
+from ragforge.index import ApproxVectorIndex, BM25Index, HybridRetriever, VectorIndex
 
 
 def _chunk(id_: str, text: str, metadata: dict | None = None) -> Chunk:
@@ -129,6 +129,73 @@ def test_vector_index_serialization():
         assert len(loaded._chunks) == len(CHUNKS)
         results = loaded.search("cat", k=1)
         assert len(results) == 1
+
+
+def test_approx_vector_index_search_and_filter():
+    index = ApproxVectorIndex(m=8, ef_construction=50)
+    index.add(CHUNKS)
+
+    results = index.search("the cat sat on a mat", k=3)
+    assert results[0].chunk.id == "c1"
+    assert results[0].provenance == "vector:hnsw"
+
+    filtered = index.search(
+        "the cat sat on a mat",
+        k=3,
+        filter_fn=lambda c: c.metadata.get("topic") == "finance",
+    )
+    assert all(r.chunk.metadata.get("topic") == "finance" for r in filtered)
+
+
+def test_approx_vector_index_delete_and_clear():
+    index = ApproxVectorIndex(m=8, ef_construction=50)
+    index.add(CHUNKS)
+
+    removed = index.delete("c1")
+    assert removed == 1
+    results = index.search("cat mat", k=5)
+    assert all(r.chunk.id != "c1" for r in results)
+
+    index.clear()
+    assert index.search("cat", k=5) == []
+
+
+def test_approx_vector_index_add_vectors_mismatch():
+    index = ApproxVectorIndex()
+    with pytest.raises(ValueError, match="Mismatch"):
+        index.add_vectors([_chunk("v1", "t1")], [[1.0, 0.0], [0.0, 1.0]])
+
+
+def test_approx_vector_index_serialization_round_trip():
+    index = ApproxVectorIndex(m=8, ef_construction=50)
+    index.add(CHUNKS)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "hnsw.json"
+        index.save(path)
+
+        loaded = ApproxVectorIndex.load(path)
+        results = loaded.search("cat mat", k=1)
+        assert results[0].chunk.id == "c1"
+
+
+def test_approx_vector_index_empty_search():
+    index = ApproxVectorIndex()
+    assert index.search("anything", k=3) == []
+    assert index.search("cat", k=0) == []
+
+
+def test_hybrid_retriever_accepts_approx_vector_index():
+    bm25 = BM25Index()
+    bm25.add(CHUNKS)
+    approx_vector = ApproxVectorIndex(m=8, ef_construction=50)
+    approx_vector.add(CHUNKS)
+
+    hybrid = HybridRetriever(bm25, approx_vector)
+    results = hybrid.search("cat mat", k=2)
+
+    assert len(results) <= 2
+    assert results[0].chunk.id == "c1"
 
 
 def test_hybrid_retriever_weighted_rrf_and_ranks():

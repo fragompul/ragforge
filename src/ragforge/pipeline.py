@@ -16,7 +16,14 @@ from typing import Any
 
 from ragforge.chunking import Chunk, Chunker, FixedSizeChunker
 from ragforge.embeddings import EmbedFn, hashing_embed
-from ragforge.index import BM25Index, FilterFn, HybridRetriever, VectorIndex
+from ragforge.index import (
+    ApproxVectorIndex,
+    BM25Index,
+    FilterFn,
+    HybridRetriever,
+    VectorIndex,
+    VectorSearchable,
+)
 from ragforge.reranking import NoopReranker, Reranker
 
 GenerateFn = Callable[[str, list[str]], str]
@@ -119,11 +126,17 @@ class RagPipeline:
         k_rrf: int = 60,
         weight_bm25: float = 1.0,
         weight_vector: float = 1.0,
+        use_ann: bool = False,
+        ann_params: dict[str, Any] | None = None,
     ) -> None:
         self.chunker: Chunker = chunker or FixedSizeChunker()
         self.embed_fn = embed_fn
         self.bm25_index = BM25Index(k1=bm25_k1, b=bm25_b)
-        self.vector_index = VectorIndex(embed_fn=embed_fn)
+        self.vector_index: VectorSearchable = (
+            ApproxVectorIndex(embed_fn=embed_fn, **(ann_params or {}))
+            if use_ann
+            else VectorIndex(embed_fn=embed_fn)
+        )
         self.retriever = HybridRetriever(
             self.bm25_index,
             self.vector_index,
@@ -257,6 +270,9 @@ class RagPipeline:
         return {
             "bm25_index": self.bm25_index.to_dict(),
             "vector_index": self.vector_index.to_dict(),
+            "vector_backend": "hnsw"
+            if isinstance(self.vector_index, ApproxVectorIndex)
+            else "brute_force",
             "k_rrf": self.retriever.k_rrf,
             "weight_bm25": self.retriever.weight_bm25,
             "weight_vector": self.retriever.weight_vector,
@@ -273,6 +289,7 @@ class RagPipeline:
     ) -> RagPipeline:
         """Reconstruct pipeline from a serialized state dictionary."""
         embed = embed_fn or hashing_embed
+        use_ann = data.get("vector_backend") == "hnsw"
         pipeline = cls(
             chunker=chunker,
             embed_fn=embed,
@@ -281,11 +298,13 @@ class RagPipeline:
             k_rrf=data.get("k_rrf", 60),
             weight_bm25=data.get("weight_bm25", 1.0),
             weight_vector=data.get("weight_vector", 1.0),
+            use_ann=use_ann,
         )
         if "bm25_index" in data:
             pipeline.bm25_index = BM25Index.from_dict(data["bm25_index"])
         if "vector_index" in data:
-            pipeline.vector_index = VectorIndex.from_dict(data["vector_index"], embed_fn=embed)
+            backend_cls = ApproxVectorIndex if use_ann else VectorIndex
+            pipeline.vector_index = backend_cls.from_dict(data["vector_index"], embed_fn=embed)
         pipeline.retriever = HybridRetriever(
             pipeline.bm25_index,
             pipeline.vector_index,

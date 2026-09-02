@@ -116,6 +116,34 @@ def test_default_prompt_formatter_empty():
     assert "No context provided" in prompt
 
 
+def test_pipeline_with_ann_backend_ingest_retrieve_and_roundtrip():
+    from ragforge.index import ApproxVectorIndex
+
+    pipeline = RagPipeline(
+        chunker=FixedSizeChunker(chunk_size=20, overlap=5),
+        reranker=HeuristicReranker(),
+        use_ann=True,
+        ann_params={"m": 8, "ef_construction": 50},
+    )
+    assert isinstance(pipeline.vector_index, ApproxVectorIndex)
+
+    pipeline.ingest(
+        "doc1",
+        "The Eiffel Tower is located in Paris, France, completed in 1889.",
+    )
+    answer = pipeline.answer("Where is the Eiffel Tower?", k=2)
+    assert len(answer.contexts) > 0
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "ann_pipeline.json"
+        pipeline.save(path)
+
+        loaded = RagPipeline.load(path, reranker=HeuristicReranker())
+        assert isinstance(loaded.vector_index, ApproxVectorIndex)
+        ans = loaded.answer("Eiffel Tower Paris", k=1)
+        assert ans.contexts[0].doc_id == "doc1"
+
+
 def test_pipeline_serialization_roundtrip():
     pipeline = _build_pipeline()
 
