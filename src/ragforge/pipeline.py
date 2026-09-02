@@ -24,6 +24,7 @@ from ragforge.index import (
     VectorIndex,
     VectorSearchable,
 )
+from ragforge.query_expansion import MultiQueryRetriever, QueryExpansionFn
 from ragforge.reranking import NoopReranker, Reranker
 
 GenerateFn = Callable[[str, list[str]], str]
@@ -128,6 +129,8 @@ class RagPipeline:
         weight_vector: float = 1.0,
         use_ann: bool = False,
         ann_params: dict[str, Any] | None = None,
+        query_expansion_fn: QueryExpansionFn | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         self.chunker: Chunker = chunker or FixedSizeChunker()
         self.embed_fn = embed_fn
@@ -137,12 +140,21 @@ class RagPipeline:
             if use_ann
             else VectorIndex(embed_fn=embed_fn)
         )
-        self.retriever = HybridRetriever(
+        self.k_rrf = k_rrf
+        self.weight_bm25 = weight_bm25
+        self.weight_vector = weight_vector
+        base_retriever = HybridRetriever(
             self.bm25_index,
             self.vector_index,
             k_rrf=k_rrf,
             weight_bm25=weight_bm25,
             weight_vector=weight_vector,
+        )
+        self.query_expansion_fn = query_expansion_fn
+        self.retriever: HybridRetriever | MultiQueryRetriever = (
+            MultiQueryRetriever(base_retriever, expand_fn=query_expansion_fn, k_rrf=k_rrf)
+            if query_expansion_fn is not None
+            else base_retriever
         )
         self.reranker = reranker or NoopReranker()
         self.generate_fn = generate_fn or _default_generate
@@ -273,9 +285,9 @@ class RagPipeline:
             "vector_backend": "hnsw"
             if isinstance(self.vector_index, ApproxVectorIndex)
             else "brute_force",
-            "k_rrf": self.retriever.k_rrf,
-            "weight_bm25": self.retriever.weight_bm25,
-            "weight_vector": self.retriever.weight_vector,
+            "k_rrf": self.k_rrf,
+            "weight_bm25": self.weight_bm25,
+            "weight_vector": self.weight_vector,
         }
 
     @classmethod
@@ -286,8 +298,14 @@ class RagPipeline:
         embed_fn: EmbedFn | None = None,
         reranker: Reranker | None = None,
         generate_fn: GenerateFn | None = None,
+        query_expansion_fn: QueryExpansionFn | None = None,
     ) -> RagPipeline:
-        """Reconstruct pipeline from a serialized state dictionary."""
+        """Reconstruct pipeline from a serialized state dictionary.
+
+        ``query_expansion_fn`` is not serialized (it is an arbitrary callable,
+        like ``embed_fn``/``generate_fn``) -- pass it again here to re-enable
+        multi-query retrieval on a loaded pipeline.
+        """
         embed = embed_fn or hashing_embed
         use_ann = data.get("vector_backend") == "hnsw"
         pipeline = cls(
@@ -299,18 +317,25 @@ class RagPipeline:
             weight_bm25=data.get("weight_bm25", 1.0),
             weight_vector=data.get("weight_vector", 1.0),
             use_ann=use_ann,
+            query_expansion_fn=query_expansion_fn,
         )
         if "bm25_index" in data:
             pipeline.bm25_index = BM25Index.from_dict(data["bm25_index"])
         if "vector_index" in data:
             backend_cls = ApproxVectorIndex if use_ann else VectorIndex
             pipeline.vector_index = backend_cls.from_dict(data["vector_index"], embed_fn=embed)
-        pipeline.retriever = HybridRetriever(
+
+        base_retriever = HybridRetriever(
             pipeline.bm25_index,
             pipeline.vector_index,
-            k_rrf=pipeline.retriever.k_rrf,
-            weight_bm25=pipeline.retriever.weight_bm25,
-            weight_vector=pipeline.retriever.weight_vector,
+            k_rrf=pipeline.k_rrf,
+            weight_bm25=pipeline.weight_bm25,
+            weight_vector=pipeline.weight_vector,
+        )
+        pipeline.retriever = (
+            MultiQueryRetriever(base_retriever, expand_fn=query_expansion_fn, k_rrf=pipeline.k_rrf)
+            if query_expansion_fn is not None
+            else base_retriever
         )
         return pipeline
 
@@ -327,6 +352,7 @@ class RagPipeline:
         embed_fn: EmbedFn | None = None,
         reranker: Reranker | None = None,
         generate_fn: GenerateFn | None = None,
+        query_expansion_fn: QueryExpansionFn | None = None,
     ) -> RagPipeline:
         """Load a pipeline index state from a JSON file."""
         with open(path, encoding="utf-8") as f:
@@ -337,4 +363,5 @@ class RagPipeline:
             embed_fn=embed_fn,
             reranker=reranker,
             generate_fn=generate_fn,
+            query_expansion_fn=query_expansion_fn,
         )

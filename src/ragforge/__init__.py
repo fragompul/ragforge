@@ -46,6 +46,12 @@ from ragforge.pipeline import (
     RetrievedChunk,
     default_prompt_formatter,
 )
+from ragforge.query_expansion import (
+    MultiQueryRetriever,
+    QueryExpansionFn,
+    identity_expansion,
+    llm_query_expansion_fn,
+)
 from ragforge.reranking import (
     CrossEncoderReranker,
     HeuristicReranker,
@@ -103,4 +109,9 @@ __all__ = [
     "EvalResult",
     "EvaluationSummary",
     "evaluate_pipeline",
+    # Query Expansion
+    "MultiQueryRetriever",
+    "QueryExpansionFn",
+    "identity_expansion",
+    "llm_query_expansion_fn",
 ]

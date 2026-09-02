@@ -144,6 +144,44 @@ def test_pipeline_with_ann_backend_ingest_retrieve_and_roundtrip():
         assert ans.contexts[0].doc_id == "doc1"
 
 
+def test_pipeline_with_query_expansion_finds_vocabulary_mismatch():
+    from ragforge.query_expansion import MultiQueryRetriever
+
+    pipeline = RagPipeline(
+        query_expansion_fn=lambda q: ["terminate subscription cancel plan"],
+    )
+    assert isinstance(pipeline.retriever, MultiQueryRetriever)
+
+    pipeline.ingest(
+        "doc1", "You can terminate your subscription at any time from account settings."
+    )
+
+    results = pipeline.retrieve("cancel my plan", k=1)
+    assert len(results) == 1
+    assert results[0].doc_id == "doc1"
+    assert "multi_query(" in results[0].provenance
+
+
+def test_pipeline_query_expansion_survives_serialization_roundtrip():
+    pipeline = RagPipeline(query_expansion_fn=lambda q: ["Paris France landmark"])
+    pipeline.ingest("doc1", "The Eiffel Tower is a famous Paris landmark.")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "expansion_pipeline.json"
+        pipeline.save(path)
+
+        loaded = RagPipeline.load(path, query_expansion_fn=lambda q: ["Paris France landmark"])
+        results = loaded.retrieve("tall tower", k=1)
+        assert len(results) == 1
+        assert results[0].doc_id == "doc1"
+
+        # Without re-supplying query_expansion_fn, falls back to plain hybrid search.
+        plain = RagPipeline.load(path)
+        from ragforge.index import HybridRetriever
+
+        assert isinstance(plain.retriever, HybridRetriever)
+
+
 def test_pipeline_serialization_roundtrip():
     pipeline = _build_pipeline()
 
