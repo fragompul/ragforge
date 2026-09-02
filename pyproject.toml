@@ -60,6 +60,12 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "SIM", "W", "C4"]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# This script's return value is a long Markdown document (table rows, URLs)
+# assembled in an f-string -- individual generated-content lines legitimately
+# exceed 100 chars; the code around them still follows the line-length limit.
+"scripts/generate_benchmarks.py" = ["E501"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

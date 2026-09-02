@@ -1,0 +1,38 @@
+<svg viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="640" height="380" fill="#ffffff"/>
+<text x="320.0" y="20" text-anchor="middle" font-size="16" font-weight="600" fill="#111827">Query Latency: Brute-Force vs. HNSW</text>
+<line x1="74" y1="324.0" x2="610" y2="324.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="328.0" text-anchor="end" font-size="11" fill="#6b7280">0.00</text>
+<line x1="74" y1="270.4" x2="610" y2="270.4" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="274.4" text-anchor="end" font-size="11" fill="#6b7280">8.29</text>
+<line x1="74" y1="216.8" x2="610" y2="216.8" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="220.8" text-anchor="end" font-size="11" fill="#6b7280">16.57</text>
+<line x1="74" y1="163.2" x2="610" y2="163.2" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="167.2" text-anchor="end" font-size="11" fill="#6b7280">24.86</text>
+<line x1="74" y1="109.6" x2="610" y2="109.6" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="113.6" text-anchor="end" font-size="11" fill="#6b7280">33.14</text>
+<line x1="74" y1="56.0" x2="610" y2="56.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="60.0" text-anchor="end" font-size="11" fill="#6b7280">41.43</text>
+<line x1="74.0" y1="56" x2="74.0" y2="324" stroke="#f3f4f6" stroke-width="1"/>
+<text x="74.0" y="346.0" text-anchor="middle" font-size="11" fill="#6b7280">300</text>
+<line x1="407.0" y1="56" x2="407.0" y2="324" stroke="#f3f4f6" stroke-width="1"/>
+<text x="407.0" y="346.0" text-anchor="middle" font-size="11" fill="#6b7280">1,500</text>
+<line x1="610.0" y1="56" x2="610.0" y2="324" stroke="#f3f4f6" stroke-width="1"/>
+<text x="610.0" y="346.0" text-anchor="middle" font-size="11" fill="#6b7280">4,000</text>
+<text x="320.0" y="372" text-anchor="middle" font-size="12" fill="#374151">Corpus size (chunks, log scale)</text>
+<text x="18" y="190.0" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90 18 190.0)">p50 query latency (ms)</text>
+<line x1="74" y1="56" x2="74" y2="324" stroke="#9ca3af" stroke-width="1.5"/>
+<line x1="74" y1="324" x2="610" y2="324" stroke="#9ca3af" stroke-width="1.5"/>
+<polyline points="74.0,293.3 407.0,214.8 610.0,91.0" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+<circle cx="74.0" cy="293.3" r="3.5" fill="#dc2626"/>
+<circle cx="407.0" cy="214.8" r="3.5" fill="#dc2626"/>
+<circle cx="610.0" cy="91.0" r="3.5" fill="#dc2626"/>
+<line x1="84" y1="44" x2="104" y2="44" stroke="#dc2626" stroke-width="3"/>
+<text x="110" y="48" font-size="12" fill="#111827">VectorIndex (brute-force)</text>
+<polyline points="74.0,294.7 407.0,304.4 610.0,313.1" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+<circle cx="74.0" cy="294.7" r="3.5" fill="#2563eb"/>
+<circle cx="407.0" cy="304.4" r="3.5" fill="#2563eb"/>
+<circle cx="610.0" cy="313.1" r="3.5" fill="#2563eb"/>
+<line x1="274" y1="44" x2="294" y2="44" stroke="#2563eb" stroke-width="3"/>
+<text x="300" y="48" font-size="12" fill="#111827">ApproxVectorIndex (HNSW)</text>
+</svg>
