@@ -59,6 +59,15 @@ from ragforge.reranking import (
     NoopReranker,
     Reranker,
 )
+from ragforge.server import serve, serve_forever_blocking
+from ragforge.telemetry import (
+    InMemoryExporter,
+    Span,
+    SpanExporter,
+    Tracer,
+    console_exporter,
+    otel_exporter,
+)
 
 __version__ = "0.1.0"
 
@@ -114,4 +123,14 @@ __all__ = [
     "QueryExpansionFn",
     "identity_expansion",
     "llm_query_expansion_fn",
+    # Telemetry
+    "Tracer",
+    "Span",
+    "SpanExporter",
+    "console_exporter",
+    "InMemoryExporter",
+    "otel_exporter",
+    # Serving
+    "serve",
+    "serve_forever_blocking",
 ]

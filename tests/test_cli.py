@@ -80,6 +80,12 @@ def test_cli_ingest_query_and_eval():
         )
         assert noop_ret == 0
 
+        # 6b. Test Query with --trace prints a per-stage latency trace
+        trace_ret = main(
+            ["query", "Hubble launch", "--index", str(index_file), "-k", "1", "--trace"]
+        )
+        assert trace_ret == 0
+
         # 7. Test Query missing index
         assert main(["query", "test", "--index", "non_existent_idx.json"]) == 1
 
@@ -111,3 +117,26 @@ def test_cli_ingest_query_and_eval():
 def test_cli_benchmark():
     ret = main(["benchmark"])
     assert ret == 0
+
+
+def test_cli_serve_missing_index_returns_error():
+    assert main(["serve", "--index", "definitely_missing_idx.json"]) == 1
+
+
+def test_cli_query_trace_prints_stage_spans(capsys):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        doc_file = tmp_path / "sample.txt"
+        doc_file.write_text("Ragforge traces every retrieval stage.", encoding="utf-8")
+        index_file = tmp_path / "index.json"
+
+        assert main(["ingest", str(doc_file), "--index", str(index_file)]) == 0
+        assert (
+            main(["query", "retrieval stages", "--index", str(index_file), "-k", "1", "--trace"])
+            == 0
+        )
+
+        out = capsys.readouterr().out
+        assert "fusion_search" in out
+        assert "rerank" in out
+        assert "generate" in out

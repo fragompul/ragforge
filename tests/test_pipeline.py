@@ -182,6 +182,28 @@ def test_pipeline_query_expansion_survives_serialization_roundtrip():
         assert isinstance(plain.retriever, HybridRetriever)
 
 
+def test_pipeline_tracer_records_nested_stage_spans():
+    from ragforge.telemetry import InMemoryExporter, Tracer
+
+    exporter = InMemoryExporter()
+    pipeline = RagPipeline(tracer=Tracer(exporters=[exporter]))
+    pipeline.ingest("doc1", "Ragforge emits nested spans for each pipeline stage.")
+
+    pipeline.answer("What does ragforge emit?", k=1)
+
+    span_names = {s.name for s in exporter.spans}
+    assert {"answer", "retrieve", "fusion_search", "rerank", "generate"} <= span_names
+
+    answer_span = exporter.by_name("answer")[0]
+    retrieve_span = exporter.by_name("retrieve")[0]
+    fusion_span = exporter.by_name("fusion_search")[0]
+    generate_span = exporter.by_name("generate")[0]
+
+    assert retrieve_span.parent_id == answer_span.span_id
+    assert fusion_span.parent_id == retrieve_span.span_id
+    assert generate_span.parent_id == answer_span.span_id
+
+
 def test_pipeline_serialization_roundtrip():
     pipeline = _build_pipeline()
 

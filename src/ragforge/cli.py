@@ -18,6 +18,8 @@ from ragforge.reranking import (
     NoopReranker,
     Reranker,
 )
+from ragforge.server import serve_forever_blocking
+from ragforge.telemetry import Tracer, console_exporter
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -71,6 +73,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="heuristic",
         help="Reranker strategy to apply (default: heuristic)",
     )
+    query_parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Print a per-stage latency trace (fusion search, rerank, generate)",
+    )
 
     # Evaluate subcommand
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a pipeline against test cases")
@@ -88,6 +95,25 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # Benchmark subcommand
     subparsers.add_parser("benchmark", help="Run synthetic performance and latency benchmarks")
+
+    # Serve subcommand
+    serve_parser = subparsers.add_parser(
+        "serve", help="Serve a pipeline over a minimal dependency-free HTTP JSON API"
+    )
+    serve_parser.add_argument(
+        "--index",
+        "-i",
+        default="ragforge_index.json",
+        help="Path to the saved pipeline index (default: ragforge_index.json)",
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    serve_parser.add_argument(
+        "--reranker",
+        choices=["none", "heuristic", "mmr"],
+        default="heuristic",
+        help="Reranker strategy to apply (default: heuristic)",
+    )
 
     return parser
 
@@ -158,9 +184,14 @@ def handle_query(args: argparse.Namespace) -> int:
         return 1
 
     reranker = _get_reranker(args.reranker)
-    pipeline = RagPipeline.load(index_path, reranker=reranker)
+    tracer = Tracer(exporters=[console_exporter]) if args.trace else None
+    pipeline = RagPipeline.load(index_path, reranker=reranker, tracer=tracer)
 
+    if args.trace:
+        print("--- TRACE ---")
     answer = pipeline.answer(args.query, k=args.k)
+    if args.trace:
+        print("-------------\n")
 
     print("\n" + "=" * 60)
     print(f"QUERY: {answer.query}")
@@ -266,6 +297,27 @@ def handle_benchmark() -> int:
     return 0
 
 
+def handle_serve(args: argparse.Namespace) -> int:
+    index_path = Path(args.index)
+    if not index_path.exists():
+        sys.stderr.write(
+            f"Error: Index file '{args.index}' does not exist. Run 'ragforge ingest' first.\n"
+        )
+        return 1
+
+    reranker = _get_reranker(args.reranker)
+    pipeline = RagPipeline.load(index_path, reranker=reranker)
+
+    print(
+        f"Serving {pipeline.document_count} documents ({pipeline.chunk_count} chunks) "
+        f"on http://{args.host}:{args.port}"
+    )
+    print('Endpoints: GET /health, POST /query {"query": str, "k": int}')
+    print("Press Ctrl+C to stop.")
+    serve_forever_blocking(pipeline, host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -278,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
         return handle_evaluate(args)
     if args.command == "benchmark":
         return handle_benchmark()
+    if args.command == "serve":
+        return handle_serve(args)
 
     parser.print_help()
     return 0

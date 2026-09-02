@@ -26,6 +26,7 @@ from ragforge.index import (
 )
 from ragforge.query_expansion import MultiQueryRetriever, QueryExpansionFn
 from ragforge.reranking import NoopReranker, Reranker
+from ragforge.telemetry import Tracer
 
 GenerateFn = Callable[[str, list[str]], str]
 PromptFormatter = Callable[[str, list[str]], str]
@@ -159,6 +160,7 @@ class RagPipeline:
         self.reranker = reranker or NoopReranker()
         self.generate_fn = generate_fn or _default_generate
         self.prompt_formatter = prompt_formatter or default_prompt_formatter
+        self.tracer = tracer or Tracer()
 
     @property
     def document_count(self) -> int:
@@ -220,8 +222,15 @@ class RagPipeline:
             return []
 
         pool = max(k, candidate_pool)
-        candidates = self.retriever.search(query, k=pool, candidate_pool=pool, filter_fn=filter_fn)
-        reranked = self.reranker.rerank(query, candidates, k=k)
+        with self.tracer.span("retrieve", query=query, k=k, candidate_pool=pool):
+            with self.tracer.span("fusion_search"):
+                candidates = self.retriever.search(
+                    query, k=pool, candidate_pool=pool, filter_fn=filter_fn
+                )
+            with self.tracer.span(
+                "rerank", reranker=type(self.reranker).__name__, candidates=len(candidates)
+            ):
+                reranked = self.reranker.rerank(query, candidates, k=k)
 
         return [
             RetrievedChunk(
@@ -249,16 +258,20 @@ class RagPipeline:
         """Execute end-to-end RAG: retrieve contexts, build prompt, generate answer."""
         start_time = time.perf_counter()
 
-        retrieval_start = time.perf_counter()
-        retrieved = self.retrieve(query, k=k, candidate_pool=candidate_pool, filter_fn=filter_fn)
-        retrieval_latency_ms = (time.perf_counter() - retrieval_start) * 1000.0
+        with self.tracer.span("answer", query=query, k=k):
+            retrieval_start = time.perf_counter()
+            retrieved = self.retrieve(
+                query, k=k, candidate_pool=candidate_pool, filter_fn=filter_fn
+            )
+            retrieval_latency_ms = (time.perf_counter() - retrieval_start) * 1000.0
 
-        contexts_text = [r.text for r in retrieved]
-        prompt = self.prompt_formatter(query, contexts_text)
+            contexts_text = [r.text for r in retrieved]
+            prompt = self.prompt_formatter(query, contexts_text)
 
-        generation_start = time.perf_counter()
-        answer_text = self.generate_fn(query, contexts_text)
-        generation_latency_ms = (time.perf_counter() - generation_start) * 1000.0
+            generation_start = time.perf_counter()
+            with self.tracer.span("generate", contexts=len(contexts_text)):
+                answer_text = self.generate_fn(query, contexts_text)
+            generation_latency_ms = (time.perf_counter() - generation_start) * 1000.0
 
         total_latency_ms = (time.perf_counter() - start_time) * 1000.0
 
@@ -299,12 +312,14 @@ class RagPipeline:
         reranker: Reranker | None = None,
         generate_fn: GenerateFn | None = None,
         query_expansion_fn: QueryExpansionFn | None = None,
+        tracer: Tracer | None = None,
     ) -> RagPipeline:
         """Reconstruct pipeline from a serialized state dictionary.
 
-        ``query_expansion_fn`` is not serialized (it is an arbitrary callable,
-        like ``embed_fn``/``generate_fn``) -- pass it again here to re-enable
-        multi-query retrieval on a loaded pipeline.
+        ``query_expansion_fn`` and ``tracer`` are not serialized (both are
+        arbitrary live objects, like ``embed_fn``/``generate_fn``) -- pass
+        them again here to re-enable multi-query retrieval or tracing on a
+        loaded pipeline.
         """
         embed = embed_fn or hashing_embed
         use_ann = data.get("vector_backend") == "hnsw"
@@ -318,6 +333,7 @@ class RagPipeline:
             weight_vector=data.get("weight_vector", 1.0),
             use_ann=use_ann,
             query_expansion_fn=query_expansion_fn,
+            tracer=tracer,
         )
         if "bm25_index" in data:
             pipeline.bm25_index = BM25Index.from_dict(data["bm25_index"])
@@ -353,6 +369,7 @@ class RagPipeline:
         reranker: Reranker | None = None,
         generate_fn: GenerateFn | None = None,
         query_expansion_fn: QueryExpansionFn | None = None,
+        tracer: Tracer | None = None,
     ) -> RagPipeline:
         """Load a pipeline index state from a JSON file."""
         with open(path, encoding="utf-8") as f:
@@ -362,6 +379,7 @@ class RagPipeline:
             chunker=chunker,
             embed_fn=embed_fn,
             reranker=reranker,
+            tracer=tracer,
             generate_fn=generate_fn,
             query_expansion_fn=query_expansion_fn,
         )
