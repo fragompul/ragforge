@@ -1,0 +1,19 @@
+# Runs the same checks locally, before a commit, that CI enforces on push
+# (see .github/workflows/ci.yml). Install once per clone:
+#
+#   pip install -e ".[dev]"
+#   pre-commit install
+#
+# Then every commit runs ruff format + lint automatically. mypy and pytest
+# are deliberately not hooked here (they're slower and already gate CI) --
+# run them manually before pushing, or via `pre-commit run --hook-stage push`
+# if you add them to CI-parity later.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        name: ruff lint (src, tests, examples)
+        args: [--fix]
+      - id: ruff-format
+        name: ruff format (src, tests, examples)
