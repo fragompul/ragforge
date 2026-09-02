@@ -108,3 +108,13 @@ flowchart TB
 Indices serialize cleanly to JSON:
 - Offline batch indexing jobs build and save the index (`pipeline.save("index.json")`).
 - Online serving instances load pre-built indices (`RagPipeline.load("index.json")`) without re-computing embeddings on startup.
+
+---
+
+## 4. Further Reading
+
+See [`docs/math.md`](math.md) for full derivations behind every scoring
+function referenced above: the probabilistic origin of BM25, why RRF fuses
+ranks instead of scores, the submodularity argument behind MMR's
+approximation guarantee, and the complexity analysis of the HNSW
+approximate nearest-neighbor index (`src/ragforge/ann.py`).
