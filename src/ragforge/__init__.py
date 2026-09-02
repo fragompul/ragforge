@@ -16,6 +16,13 @@ from ragforge.embeddings import (
     hashing_embed,
     normalize_vector,
 )
+from ragforge.embeddings_providers import (
+    cached_embed_fn,
+    cohere_embed_fn,
+    ollama_embed_fn,
+    openai_embed_fn,
+    sentence_transformers_embed_fn,
+)
 from ragforge.evaluation import (
     EvalCase,
     EvalResult,
@@ -63,6 +70,12 @@ __all__ = [
     "hashing_embed",
     "cosine_similarity",
     "normalize_vector",
+    # Real embedding provider adapters (optional dependencies)
+    "openai_embed_fn",
+    "cohere_embed_fn",
+    "sentence_transformers_embed_fn",
+    "ollama_embed_fn",
+    "cached_embed_fn",
     # Indices & Retrieval
     "BM25Index",
     "VectorIndex",

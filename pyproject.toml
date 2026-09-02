@@ -22,6 +22,11 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
 ]
+# Real embedding providers (see src/ragforge/embeddings_providers.py). Each is
+# fully optional and lazily imported -- core ragforge has zero dependencies.
+openai = ["openai>=1.0"]
+cohere = ["cohere>=5.0"]
+local = ["sentence-transformers>=3.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
