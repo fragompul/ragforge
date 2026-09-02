@@ -418,13 +418,11 @@ mypy src
 pytest --cov=ragforge --cov-report=term-missing --cov-fail-under=90
 ```
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full development workflow, design conventions, and an optional pre-commit hook.
-
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). See [`CHANGELOG.md`](CHANGELOG.md) for release history, and [`SECURITY.md`](SECURITY.md) for the vulnerability disclosure process.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 

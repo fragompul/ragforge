@@ -16,7 +16,6 @@
       applicable (`tests/test_properties.py`)
 - [ ] `docs/architecture.md` and/or `docs/math.md` updated if this changes
       the system design or introduces a new scoring formula
-- [ ] `CHANGELOG.md` updated under `[Unreleased]`
 - [ ] No new required dependency added to `src/ragforge/` (optional
       integrations use the lazy-import adapter pattern, see
       `src/ragforge/embeddings_providers.py`)
