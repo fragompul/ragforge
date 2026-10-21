@@ -4,13 +4,37 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ragforge"
-version = "0.1.0"
-description = "Production-hardened RAG pipeline: multi-strategy chunking, hybrid search (BM25 + vector RRF), reranking, metadata filtering, and RAGAS-style evaluation"
+dynamic = ["version"]
+description = "Zero-dependency hybrid RAG toolkit: BM25 + vector search with RRF, from-scratch HNSW, guardrails, verifiable citations, agentic retrieval, evaluation and an MCP server."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Francisco Javier Gómez Pulido" }]
+keywords = [
+    "rag", "retrieval-augmented-generation", "hybrid-search", "bm25", "hnsw", "llm",
+    "reranking", "mcp", "model-context-protocol", "agentic-rag", "evaluation", "guardrails",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/fragompul/ragforge"
+Demo = "https://fragompul.github.io/ragforge/"
+Documentation = "https://github.com/fragompul/ragforge/tree/main/docs"
+Changelog = "https://github.com/fragompul/ragforge/blob/main/CHANGELOG.md"
+Issues = "https://github.com/fragompul/ragforge/issues"
 
 [project.scripts]
 ragforge = "ragforge.cli:main"
@@ -22,15 +46,27 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "hypothesis>=6.100",
+    "numpy>=1.26",
 ]
-# Real embedding providers (see src/ragforge/embeddings_providers.py). Each is
-# fully optional and lazily imported -- core ragforge has zero dependencies.
+# Everything below is optional and lazily imported -- core ragforge has zero dependencies.
+# NumPy-accelerated exact vector search (ragforge.fast.NumpyVectorIndex).
+fast = ["numpy>=1.26"]
+# Real embedding / LLM providers (see embeddings_providers.py and llm_providers.py).
 openai = ["openai>=1.0"]
 cohere = ["cohere>=5.0"]
+anthropic = ["anthropic>=0.40"]
 local = ["sentence-transformers>=3.0"]
+# Documentation site (mkdocs build --strict).
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ragforge._version.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+ragforge = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -65,6 +101,8 @@ ignore = []
 # assembled in an f-string -- individual generated-content lines legitimately
 # exceed 100 chars; the code around them still follows the line-length limit.
 "scripts/generate_benchmarks.py" = ["E501"]
+"scripts/eval_*.py" = ["E501"]
+"scripts/make_notebook.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
