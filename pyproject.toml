@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -41,23 +41,23 @@ ragforge = "ragforge.cli:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "ruff>=0.6",
-    "mypy>=1.10",
-    "hypothesis>=6.100",
-    "numpy>=1.26",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+    "mypy>=2.4.0",
+    "hypothesis>=6.170.1",
+    "numpy>=2.4.6",
 ]
 # Everything below is optional and lazily imported -- core ragforge has zero dependencies.
 # NumPy-accelerated exact vector search (ragforge.fast.NumpyVectorIndex).
-fast = ["numpy>=1.26"]
+fast = ["numpy>=2.4.6"]
 # Real embedding / LLM providers (see embeddings_providers.py and llm_providers.py).
-openai = ["openai>=1.0"]
-cohere = ["cohere>=5.0"]
-anthropic = ["anthropic>=0.40"]
-local = ["sentence-transformers>=3.0"]
+openai = ["openai>=3.35.1"]
+cohere = ["cohere>=7.2.0"]
+anthropic = ["anthropic>=1.15.0"]
+local = ["sentence-transformers>=6.1.0"]
 # Documentation site (mkdocs build --strict).
-docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5"]
+docs = ["mkdocs>=1.6.1,<2", "mkdocs-material>=9.7.7"]
 
 [tool.setuptools.dynamic]
 version = { attr = "ragforge._version.__version__" }
