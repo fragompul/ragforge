@@ -1,136 +1,140 @@
 # Benchmarks
 
-Real numbers from `ragforge`'s own code, measured with
-[`scripts/generate_benchmarks.py`](../scripts/generate_benchmarks.py) -- no
-external benchmarking framework, no synthetic or hand-typed figures.
-Regenerate with:
+Measured with ragforge's own code by
+[`scripts/generate_benchmarks.py`](https://github.com/fragompul/ragforge/blob/main/scripts/generate_benchmarks.py) -- no external
+benchmarking framework and no hand-typed figures. Regenerate with:
 
 ```bash
 python scripts/generate_benchmarks.py
 ```
 
-Machine: `Windows 11`, Python `3.14.6`,
-ragforge `0.1.0`. Absolute numbers will vary by machine; the *shapes*
-of the curves (crossover point, recall trend) are what matters here and are
-tied to the complexity argument in [`docs/math.md`](math.md#4-hnsw-approximate-nearest-neighbor-search-srcragforgeannpy).
+Machine: `Darwin arm64`, Python `3.12.14`, ragforge `0.2.0`.
+Absolute numbers vary by machine; the *shapes* (crossover, recall curve, speedups)
+are what matter. Quality on real data with real embeddings lives in
+[`evaluation.md`](evaluation.md).
 
 ---
 
-## 1. Brute-Force vs. HNSW Approximate Search
+## 1. Vector search: exact vs. HNSW
 
-`VectorIndex` scans every chunk per query (`O(n)`); `ApproxVectorIndex`
-(HNSW, see [`src/ragforge/ann.py`](../src/ragforge/ann.py)) trades exactness
-for expected `O(log n)` graph traversal. HNSW overtakes brute force in query latency starting around **300 chunks** in this run.
+Clustered unit vectors (32-d, 20 Gaussian clusters), 60 queries per
+size, top-10. Recall is measured against the exact result set on the same corpus.
+HNSW overtakes the exact pure-Python scan from about **1,000 chunks**.
 
-Both backends use 32-dimensional `hashing_embed` vectors
-here (the library default is 128) purely so the full sweep finishes in
-well under a minute on a laptop -- this repository's pure-Python, zero-
-dependency `cosine_similarity` (no numpy/BLAS vectorization, see
-`docs/math.md#6`) spends time roughly linear in dimensionality, so lower
-dims speed up *both* curves proportionally without changing which one
-wins or the recall trend.
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/ann_latency_dark.svg"><img alt="Query latency vs corpus size" src="assets/ann_latency_light.svg" width="680"></picture>
 
-![Query latency: brute-force vs HNSW](assets/ann_latency.svg)
+| Corpus | Exact pure-Python p50 (ms) | Exact NumPy p50 (ms) | HNSW p50 (ms), ef=50 | Recall@10, ef=50 | Recall@10, ef=200 | HNSW build (s) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 2.425 | 0.022 | 0.208 | 1.000 | 1.000 | 0.8 |
+| 5,000 | 12.491 | 0.057 | 0.241 | 1.000 | 1.000 | 4.8 |
+| 20,000 | 51.147 | 0.176 | 0.607 | 0.998 | 0.998 | 26.5 |
 
-![HNSW recall@10 vs brute-force ground truth](assets/ann_recall.svg)
+HNSW build is the price of sub-linear queries: each insertion runs a graph search.
+The pure-Python implementation is built for clarity and zero dependencies; the NumPy
+backend shows how far a vectorized exact scan goes before an ANN index is needed.
 
-| Corpus size | Brute-force p50 (ms) | HNSW p50 (ms) | Brute-force build (ms) | HNSW build (ms) | Recall@10 |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 300 | 4.7465 | 4.5262 | 7.2 | 2882.9 | 0.930 |
-| 1,500 | 16.8861 | 3.0318 | 38.8 | 22943.8 | 0.795 |
-| 4,000 | 36.0265 | 1.6774 | 77.6 | 65011.1 | 0.405 |
+### `ef_search` is a real recall dial
 
-Recall@10 is measured against the brute-force result set on the *same*
-corpus and query, not a held-out ground truth -- it answers "how often does
-the approximate index agree with the exact one," which is exactly the
-tradeoff `ApproxVectorIndex`'s docstring warns about. HNSW build time is
-higher than brute-force's simple append because it does real work per
-insertion (greedy layer search + neighbor pruning, see
-`HNSWIndex.add`) instead of just storing the vector.
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/ann_recall_dark.svg"><img alt="HNSW recall vs ef_search" src="assets/ann_recall_light.svg" width="680"></picture>
 
-**Recall drops as corpus size grows here because `ef_search`/`ef_construction`
-were held fixed** (`m=8, ef_construction=40, ef_search=30`, chosen to keep
-the whole sweep fast) while the corpus grew more than 13x -- a fixed beam
-width searches a proportionally shrinking fraction of a bigger graph. This
-isn't a quirk of this implementation; it's why production HNSW deployments
-scale `ef_construction`/`ef_search` with corpus size rather than hard-coding
-them. Section 2 below measures that knob directly.
-
----
-
-## 2. Tuning `ef_search`: A Recall Ceiling, Not a Dial
-
-`ef_search` is the beam width used *at query time* -- widening it should let
-a query examine more candidates and recover recall. Holding the same
-`n=4,000` graph from Section 1 (`m=8, ef_construction=40`) fixed and sweeping
-only `ef_search` at query time:
+At the largest corpus (20,000 chunks):
 
 | `ef_search` | p50 query (ms) | Recall@10 |
 | ---: | ---: | ---: |
-| 30 | 5.8 | 0.385 |
-| 60 | 12.3 | 0.600 |
-| 120 | 17.4 | 0.555 |
-| 250 | 32.3 | 0.565 |
-| 500 | 64.5 | 0.590 |
+| 4 | 0.210 | 0.863 |
+| 8 | 0.192 | 0.863 |
+| 16 | 0.277 | 0.938 |
+| 32 | 0.392 | 0.993 |
+| 64 | 0.555 | 0.998 |
+| 128 | 0.795 | 0.998 |
 
-Recall jumps from `ef_search=30` to `60`, then **plateaus around 0.55-0.60**
-even at `ef_search=500` -- 16x the original beam width and roughly matching
-brute force's own query cost, for no further recall gain. This is the
-expected behavior, not a bug: `ef_search` only controls how much of the
-*existing* graph a query explores. If the graph itself is under-connected
-because it was built with a small `ef_construction`/`m`, no amount of
-query-time search recovers neighbors that were never linked during
-construction. `ef_construction` and `m` set the *ceiling*; `ef_search` lets
-a query approach that ceiling, cheaply or expensively, but never exceed it.
-This matches the guidance in the original HNSW paper (Malkov & Yashunin):
-construction-time parameters, not query-time ones, are what most affects
-achievable recall.
+Widening the beam trades latency for recall along a smooth curve, as the HNSW
+paper predicts. (An earlier version of this repository showed recall *plateauing*
+near 0.55 regardless of `ef_search`; that was a defect of the implementation, not of
+HNSW -- see the next section.)
 
-**Rebuilding with a much higher-quality graph only partially confirms
-that**, which is itself informative: `m=16, ef_construction=150` (roughly
-4x the construction cost, 122.8s vs. ~65s to build 4,000 nodes) reaches
-recall@10 of only **0.540** at `ef_search=100` -- better than the
-under-built graph's plateau, but nowhere near 1.0. A second factor is at
-play here that graph quality alone can't fix: this benchmark's synthetic
-corpus is built from a 10-word topic vocabulary hashed into only 32
-dimensions (see `_BENCHMARK_DIMS` in the script), which by the birthday-bound
-argument in [`docs/math.md`](math.md#5-deterministic-hashing-embeddings-hashing_embed)
-produces many near-identical or colliding vectors. When dozens of chunks
-sit within floating-point noise of each other in cosine similarity, "does
-the approximate index return the *exact same* top-10 as brute force" is
-partly measuring tie-breaking order, not retrieval quality -- both indices
-may be returning equally relevant chunks that simply disagree on rank 9 vs.
-11. A real embedding model (see
-[`src/ragforge/embeddings_providers.py`](../src/ragforge/embeddings_providers.py))
-produces a much less degenerate similarity landscape, so recall@10 in a real
-deployment is expected to sit meaningfully closer to 1.0 than these numbers
-suggest -- the shape of the *latency* curves in Section 1 is the more
-transferable finding here.
+### Ablation: the neighbor-selection heuristic
 
-*(This sweep re-queries the exact `ApproxVectorIndex` built for the
-`n=4,000` row above by calling `HNSWIndex.search` with different
-`ef_search` values directly, rather than rebuilding the index -- it is a
-targeted diagnostic run, not part of `generate_benchmarks.py`'s main sweep,
-to keep the regenerate-from-scratch runtime short.)*
+The first HNSW implementation linked each new node to its `M` *closest* candidates.
+On clustered data that wires a node to a clump of mutually redundant neighbors, the
+graph fragments into islands, and recall collapses as the corpus grows. The paper's
+heuristic (Algorithm 4) keeps a candidate only if it is closer to the new node than
+to every neighbor already chosen, which preserves edges that leave the cluster.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/ann_ablation_dark.svg"><img alt="Neighbor selection ablation" src="assets/ann_ablation_light.svg" width="680"></picture>
+
+| Edge selection | Recall@10 (ef_search=50, n=4,000) |
+| :--- | ---: |
+| closest-M (no heuristic) | 0.922 |
+| heuristic selection | 1.000 |
 
 ---
 
-## 3. Ingestion Throughput
+## 2. BM25: inverted index vs. naive scan
 
-End-to-end throughput of `RecursiveCharacterChunker` + dual BM25/vector
-indexing, single-threaded, using the default `hashing_embed`.
+`BM25Index` keeps postings (`term -> {chunk: tf}`), so a query only touches chunks
+that contain a query term. The previous implementation re-tokenized counts for every
+chunk on every query. Zipf-distributed vocabulary, 60-token chunks, 4-term queries:
 
-| Corpus size (docs) | Total chunks | Elapsed (s) | Docs/sec |
+| Chunks | Naive scan p50 (ms) | Inverted index p50 (ms) | Speedup |
 | ---: | ---: | ---: | ---: |
-| 500 | 500 | 0.040 | 12,475.4 |
-| 2,000 | 2,000 | 0.211 | 9,494.2 |
-| 6,000 | 6,000 | 1.145 | 5,241.1 |
-| 15,000 | 15,000 | 8.555 | 1,753.4 |
+| 1,000 | 2.08 | 0.174 | **12x** |
+| 5,000 | 10.91 | 0.735 | **15x** |
+| 20,000 | 44.36 | 3.603 | **12x** |
 
-A real embedding provider (see
-[`src/ragforge/embeddings_providers.py`](../src/ragforge/embeddings_providers.py))
-will dominate this cost in practice -- network/model latency per chunk is
-orders of magnitude larger than `hashing_embed`'s in-process hashing, so
-production ingestion throughput is bounded by the embedding provider's
-batch API limits and concurrency, not by ragforge's own chunking or
-indexing code measured here.
+---
+
+## 3. Filtered vector search
+
+Metadata filters (tenant, category, date) are everywhere in production, and graph indexes are
+notoriously bad at them: the graph does not know which nodes pass the filter. The earlier
+implementation fetched `10 x k` neighbors and filtered afterwards, which **returns too few -- or no --
+results when the filter is selective**. Filters now run *inside* the traversal (every node
+helps navigation, only passing nodes can be results, the beam widens until it holds `ef_search`
+accepted candidates) with a visit cap, and an **exact scan over the passing chunks** completes the
+answer when the cap is hit. 5,000 chunks, top-10; recall against exact filtered search:
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/filtered_recall_dark.svg"><img alt="Filtered search recall vs selectivity" src="assets/filtered_recall_light.svg" width="680"></picture>
+
+| Filter passes | Over-fetch recall | Returns (of 10) | In-graph recall | Returns (of 10) | p50 ms (before / now) |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| 50% (2,500 chunks) | 0.998 | 10.0 | 0.998 | 10.0 | 0.33 / 0.33 |
+| 10% (500 chunks) | 0.912 | 9.1 | 1.000 | 10.0 | 0.34 / 1.55 |
+| 2% (100 chunks) | 0.212 | 2.1 | 0.980 | 10.0 | 0.33 / 1.82 |
+| 0.5% (25 chunks) | 0.050 | 0.5 | 0.922 | 10.0 | 0.32 / 1.89 |
+
+---
+
+## 4. Persistence: JSON vs. memory-mapped directory
+
+`RagPipeline.save` writes one JSON file; `DiskIndex` writes a directory with float32
+vectors in a memory-mapped file, the HNSW graph in compact binary adjacency arrays, chunks as
+JSON lines, and a manifest as the atomic commit record. Each format is opened in a **fresh Python
+process** (so peak RSS is honest), then 150 queries are run. 20,000 chunks, HNSW backend, 128-d vectors.
+
+| | JSON | Directory (mmap) |
+| :--- | ---: | ---: |
+| Size on disk (MB) | 65.4 | 18.4 |
+| Open time (s) | 0.46 | 0.16 |
+| Peak memory (MB) | 476 | 142 |
+| Vector query p50 (ms) | 1.45 | 2.10 |
+
+The directory format also supports **incremental ingest, deletion and compaction** without rewriting the
+index, and survives a crash mid-append (an interrupted tail is ignored and overwritten).
+BM25 postings are rebuilt from `chunks.jsonl` at open, which is a linear pass over the text.
+
+---
+
+## 5. Ingestion throughput
+
+Chunking (`RecursiveCharacterChunker`) plus BM25 and vector indexing, single-threaded,
+using the default `hashing_embed`.
+
+| Documents | Chunks | Elapsed (s) | Docs / s |
+| ---: | ---: | ---: | ---: |
+| 1,000 | 1,000 | 0.01 | 73,935 |
+| 4,000 | 4,000 | 0.05 | 74,365 |
+| 12,000 | 12,000 | 0.16 | 72,875 |
+
+With a real embedding provider the model call dominates; production ingestion is
+bounded by the provider's batch limits, not by ragforge's chunking or indexing.

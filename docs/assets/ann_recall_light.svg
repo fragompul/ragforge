@@ -1,0 +1,41 @@
+<svg viewBox="0 0 680 400" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" role="img" aria-label="HNSW recall@10 vs. ef_search">
+<rect width="680" height="400" rx="14" fill="#ffffff"/>
+<text x="24" y="34" font-size="17" font-weight="700" fill="#10162b">HNSW recall@10 vs. ef_search</text>
+<text x="24" y="54" font-size="12" fill="#5b6585">M=16, ef_construction=100 · largest corpus: 20,000</text>
+<line x1="66" y1="342.0" x2="652" y2="342.0" stroke="#e4e7f1"/><text x="56" y="346.0" text-anchor="end" font-size="11" fill="#5b6585">0.6</text>
+<line x1="66" y1="277.5" x2="652" y2="277.5" stroke="#e4e7f1"/><text x="56" y="281.5" text-anchor="end" font-size="11" fill="#5b6585">0.7</text>
+<line x1="66" y1="213.0" x2="652" y2="213.0" stroke="#e4e7f1"/><text x="56" y="217.0" text-anchor="end" font-size="11" fill="#5b6585">0.8</text>
+<line x1="66" y1="148.5" x2="652" y2="148.5" stroke="#e4e7f1"/><text x="56" y="152.5" text-anchor="end" font-size="11" fill="#5b6585">0.9</text>
+<line x1="66" y1="84.0" x2="652" y2="84.0" stroke="#e4e7f1"/><text x="56" y="88.0" text-anchor="end" font-size="11" fill="#5b6585">1</text>
+<text x="66.0" y="362" text-anchor="middle" font-size="11" fill="#5b6585">4</text>
+<text x="183.2" y="362" text-anchor="middle" font-size="11" fill="#5b6585">8</text>
+<text x="300.4" y="362" text-anchor="middle" font-size="11" fill="#5b6585">16</text>
+<text x="417.6" y="362" text-anchor="middle" font-size="11" fill="#5b6585">32</text>
+<text x="534.8" y="362" text-anchor="middle" font-size="11" fill="#5b6585">64</text>
+<text x="652.0" y="362" text-anchor="middle" font-size="11" fill="#5b6585">128</text>
+<text x="359.0" y="386" text-anchor="middle" font-size="12" fill="#5b6585">ef_search (beam width, log scale)</text><text x="18" y="213.0" text-anchor="middle" font-size="12" fill="#5b6585" transform="rotate(-90 18 213.0)">recall@10 vs. exact search</text>
+<polyline points="66.0,84.0 183.2,84.0 300.4,84.0 417.6,84.0 534.8,84.0 652.0,84.0" fill="none" stroke="#ff6b2c" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="66.0" cy="84.0" r="4" fill="#ffffff" stroke="#ff6b2c" stroke-width="2.4"/>
+<circle cx="183.2" cy="84.0" r="4" fill="#ffffff" stroke="#ff6b2c" stroke-width="2.4"/>
+<circle cx="300.4" cy="84.0" r="4" fill="#ffffff" stroke="#ff6b2c" stroke-width="2.4"/>
+<circle cx="417.6" cy="84.0" r="4" fill="#ffffff" stroke="#ff6b2c" stroke-width="2.4"/>
+<circle cx="534.8" cy="84.0" r="4" fill="#ffffff" stroke="#ff6b2c" stroke-width="2.4"/>
+<circle cx="652.0" cy="84.0" r="4" fill="#ffffff" stroke="#ff6b2c" stroke-width="2.4"/>
+<rect x="24" y="64" width="14" height="4" rx="2" fill="#ff6b2c"/><text x="44" y="70" font-size="12" fill="#10162b">n = 1,000</text>
+<polyline points="66.0,109.8 183.2,109.8 300.4,87.2 417.6,84.0 534.8,84.0 652.0,84.0" fill="none" stroke="#2dd4ef" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="66.0" cy="109.8" r="4" fill="#ffffff" stroke="#2dd4ef" stroke-width="2.4"/>
+<circle cx="183.2" cy="109.8" r="4" fill="#ffffff" stroke="#2dd4ef" stroke-width="2.4"/>
+<circle cx="300.4" cy="87.2" r="4" fill="#ffffff" stroke="#2dd4ef" stroke-width="2.4"/>
+<circle cx="417.6" cy="84.0" r="4" fill="#ffffff" stroke="#2dd4ef" stroke-width="2.4"/>
+<circle cx="534.8" cy="84.0" r="4" fill="#ffffff" stroke="#2dd4ef" stroke-width="2.4"/>
+<circle cx="652.0" cy="84.0" r="4" fill="#ffffff" stroke="#2dd4ef" stroke-width="2.4"/>
+<rect x="117" y="64" width="14" height="4" rx="2" fill="#2dd4ef"/><text x="137" y="70" font-size="12" fill="#10162b">n = 5,000</text>
+<polyline points="66.0,172.1 183.2,172.1 300.4,123.8 417.6,88.3 534.8,85.1 652.0,85.1" fill="none" stroke="#8b7cf6" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="66.0" cy="172.1" r="4" fill="#ffffff" stroke="#8b7cf6" stroke-width="2.4"/>
+<circle cx="183.2" cy="172.1" r="4" fill="#ffffff" stroke="#8b7cf6" stroke-width="2.4"/>
+<circle cx="300.4" cy="123.8" r="4" fill="#ffffff" stroke="#8b7cf6" stroke-width="2.4"/>
+<circle cx="417.6" cy="88.3" r="4" fill="#ffffff" stroke="#8b7cf6" stroke-width="2.4"/>
+<circle cx="534.8" cy="85.1" r="4" fill="#ffffff" stroke="#8b7cf6" stroke-width="2.4"/>
+<circle cx="652.0" cy="85.1" r="4" fill="#ffffff" stroke="#8b7cf6" stroke-width="2.4"/>
+<rect x="210" y="64" width="14" height="4" rx="2" fill="#8b7cf6"/><text x="230" y="70" font-size="12" fill="#10162b">n = 20,000</text>
+</svg>
