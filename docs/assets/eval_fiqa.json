@@ -1,0 +1,50 @@
+{
+  "dataset": "fiqa",
+  "title": "FiQA-2018",
+  "ragforge_version": "0.2.0",
+  "documents": 57638,
+  "queries": 648,
+  "embedder": "MiniLM-L6-v2 (384-d, sentence-transformers)",
+  "systems": [
+    {
+      "system": "BM25 (simple tokenizer)",
+      "ndcg@10": 0.2337,
+      "recall@10": 0.3005,
+      "recall@100": 0.5068,
+      "mrr@10": 0.289,
+      "p50_ms": 17.2087
+    },
+    {
+      "system": "BM25 (english analyzer)",
+      "ndcg@10": 0.242,
+      "recall@10": 0.3105,
+      "recall@100": 0.5454,
+      "mrr@10": 0.2915,
+      "p50_ms": 2.9169
+    },
+    {
+      "system": "Vector (minilm)",
+      "ndcg@10": 0.3687,
+      "recall@10": 0.4389,
+      "recall@100": 0.7095,
+      "mrr@10": 0.4463,
+      "p50_ms": 2.6346
+    },
+    {
+      "system": "Hybrid RRF (BM25 + vector)",
+      "ndcg@10": 0.3552,
+      "recall@10": 0.4357,
+      "recall@100": 0.7002,
+      "mrr@10": 0.425,
+      "p50_ms": 5.6337
+    },
+    {
+      "system": "Hybrid RRF + query router",
+      "ndcg@10": 0.3406,
+      "recall@10": 0.4094,
+      "recall@100": 0.6725,
+      "mrr@10": 0.4122,
+      "p50_ms": 5.5549
+    }
+  ]
+}

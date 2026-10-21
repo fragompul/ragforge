@@ -1,0 +1,50 @@
+{
+  "dataset": "scidocs",
+  "title": "SCIDOCS",
+  "ragforge_version": "0.2.0",
+  "documents": 25657,
+  "queries": 1000,
+  "embedder": "MiniLM-L6-v2 (384-d, sentence-transformers)",
+  "systems": [
+    {
+      "system": "BM25 (simple tokenizer)",
+      "ndcg@10": 0.1504,
+      "recall@10": 0.1558,
+      "recall@100": 0.349,
+      "mrr@10": 0.2686,
+      "p50_ms": 6.375
+    },
+    {
+      "system": "BM25 (english analyzer)",
+      "ndcg@10": 0.1599,
+      "recall@10": 0.1679,
+      "recall@100": 0.3657,
+      "mrr@10": 0.2792,
+      "p50_ms": 2.0141
+    },
+    {
+      "system": "Vector (minilm)",
+      "ndcg@10": 0.2166,
+      "recall@10": 0.2307,
+      "recall@100": 0.5089,
+      "mrr@10": 0.3607,
+      "p50_ms": 1.2331
+    },
+    {
+      "system": "Hybrid RRF (BM25 + vector)",
+      "ndcg@10": 0.2018,
+      "recall@10": 0.2116,
+      "recall@100": 0.4826,
+      "mrr@10": 0.3453,
+      "p50_ms": 3.066
+    },
+    {
+      "system": "Hybrid RRF + query router",
+      "ndcg@10": 0.196,
+      "recall@10": 0.206,
+      "recall@100": 0.4416,
+      "mrr@10": 0.3355,
+      "p50_ms": 2.9966
+    }
+  ]
+}

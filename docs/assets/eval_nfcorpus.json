@@ -1,0 +1,103 @@
+{
+  "dataset": "nfcorpus",
+  "title": "NFCorpus",
+  "ragforge_version": "0.2.0",
+  "documents": 3633,
+  "queries": 323,
+  "embedder": "MiniLM-L6-v2 (384-d, sentence-transformers)",
+  "systems": [
+    {
+      "system": "BM25 (simple tokenizer)",
+      "ndcg@10": 0.31,
+      "recall@10": 0.152,
+      "recall@100": 0.2354,
+      "mrr@10": 0.5192,
+      "p50_ms": 0.1277
+    },
+    {
+      "system": "BM25 (english analyzer)",
+      "ndcg@10": 0.3272,
+      "recall@10": 0.1577,
+      "recall@100": 0.243,
+      "mrr@10": 0.5315,
+      "p50_ms": 0.0809
+    },
+    {
+      "system": "Vector (minilm)",
+      "ndcg@10": 0.3184,
+      "recall@10": 0.159,
+      "recall@100": 0.3147,
+      "mrr@10": 0.5076,
+      "p50_ms": 0.0965
+    },
+    {
+      "system": "Hybrid RRF (BM25 + vector)",
+      "ndcg@10": 0.3548,
+      "recall@10": 0.1708,
+      "recall@100": 0.3248,
+      "mrr@10": 0.5638,
+      "p50_ms": 0.2542
+    },
+    {
+      "system": "Hybrid RRF + query router",
+      "ndcg@10": 0.3546,
+      "recall@10": 0.1706,
+      "recall@100": 0.3192,
+      "mrr@10": 0.5667,
+      "p50_ms": 0.2613
+    },
+    {
+      "system": "SPLADE (learned sparse)",
+      "ndcg@10": 0.3457,
+      "recall@10": 0.1667,
+      "recall@100": 0.2862,
+      "mrr@10": 0.5603,
+      "p50_ms": 0.4037
+    },
+    {
+      "system": "Hybrid RRF (BM25 + vector + SPLADE)",
+      "ndcg@10": 0.3582,
+      "recall@10": 0.1708,
+      "recall@100": 0.3219,
+      "mrr@10": 0.5714,
+      "p50_ms": 0.767
+    }
+  ],
+  "quantization": [
+    {
+      "setting": "float32 exact (baseline)",
+      "ndcg@10": 0.3184,
+      "overlap@10_vs_exact": 1.0,
+      "bytes_per_vector": 1536.0,
+      "p50_ms": 0.0605
+    },
+    {
+      "setting": "int8 + rescoring",
+      "ndcg@10": 0.3184,
+      "overlap@10_vs_exact": 1.0,
+      "bytes_per_vector": 384.0,
+      "p50_ms": 16.8232
+    },
+    {
+      "setting": "int8 codes only",
+      "ndcg@10": 0.3187,
+      "overlap@10_vs_exact": 0.9926,
+      "bytes_per_vector": 384.0,
+      "p50_ms": 16.5804
+    },
+    {
+      "setting": "binary + rescoring (x8)",
+      "ndcg@10": 0.3112,
+      "overlap@10_vs_exact": 0.8551,
+      "bytes_per_vector": 48.0,
+      "p50_ms": 0.9421
+    },
+    {
+      "setting": "binary codes only",
+      "ndcg@10": 0.2504,
+      "overlap@10_vs_exact": 0.4712,
+      "bytes_per_vector": 48.0,
+      "p50_ms": 0.6069
+    }
+  ]
+}

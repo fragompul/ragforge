@@ -1,0 +1,135 @@
+{
+  "dataset": "scifact",
+  "title": "SciFact",
+  "ragforge_version": "0.2.0",
+  "documents": 5183,
+  "queries": 300,
+  "embedder": "MiniLM-L6-v2 (384-d, sentence-transformers)",
+  "systems": [
+    {
+      "system": "BM25 (simple tokenizer)",
+      "ndcg@10": 0.6644,
+      "recall@10": 0.7816,
+      "recall@100": 0.8859,
+      "mrr@10": 0.6337,
+      "p50_ms": 1.7362
+    },
+    {
+      "system": "BM25 (english analyzer)",
+      "ndcg@10": 0.6783,
+      "recall@10": 0.8029,
+      "recall@100": 0.907,
+      "mrr@10": 0.6462,
+      "p50_ms": 0.5211
+    },
+    {
+      "system": "Vector (minilm)",
+      "ndcg@10": 0.6479,
+      "recall@10": 0.79,
+      "recall@100": 0.9283,
+      "mrr@10": 0.6055,
+      "p50_ms": 0.2682
+    },
+    {
+      "system": "Hybrid RRF (BM25 + vector)",
+      "ndcg@10": 0.7006,
+      "recall@10": 0.8346,
+      "recall@100": 0.955,
+      "mrr@10": 0.6647,
+      "p50_ms": 0.8719
+    },
+    {
+      "system": "Hybrid RRF + query router",
+      "ndcg@10": 0.7102,
+      "recall@10": 0.8412,
+      "recall@100": 0.9477,
+      "mrr@10": 0.6767,
+      "p50_ms": 0.8624
+    },
+    {
+      "system": "SPLADE (learned sparse)",
+      "ndcg@10": 0.7011,
+      "recall@10": 0.8116,
+      "recall@100": 0.9377,
+      "mrr@10": 0.6727,
+      "p50_ms": 1.2331
+    },
+    {
+      "system": "Hybrid RRF (BM25 + vector + SPLADE)",
+      "ndcg@10": 0.7209,
+      "recall@10": 0.8619,
+      "recall@100": 0.965,
+      "mrr@10": 0.6822,
+      "p50_ms": 2.3914
+    }
+  ],
+  "quantization": [
+    {
+      "setting": "float32 exact (baseline)",
+      "ndcg@10": 0.6479,
+      "overlap@10_vs_exact": 1.0,
+      "bytes_per_vector": 1536.0,
+      "p50_ms": 0.1696
+    },
+    {
+      "setting": "int8 + rescoring",
+      "ndcg@10": 0.6479,
+      "overlap@10_vs_exact": 1.0,
+      "bytes_per_vector": 384.0,
+      "p50_ms": 23.7863
+    },
+    {
+      "setting": "int8 codes only",
+      "ndcg@10": 0.6488,
+      "overlap@10_vs_exact": 0.995,
+      "bytes_per_vector": 384.0,
+      "p50_ms": 23.6295
+    },
+    {
+      "setting": "binary + rescoring (x8)",
+      "ndcg@10": 0.6449,
+      "overlap@10_vs_exact": 0.9297,
+      "bytes_per_vector": 48.0,
+      "p50_ms": 1.1538
+    },
+    {
+      "setting": "binary codes only",
+      "ndcg@10": 0.573,
+      "overlap@10_vs_exact": 0.5557,
+      "bytes_per_vector": 48.0,
+      "p50_ms": 0.8638
+    }
+  ],
+  "ann": [
+    {
+      "build_s": 46.0063,
+      "ef_search": 10,
+      "recall@10": 0.9233,
+      "p50_ms": 1.0891
+    },
+    {
+      "build_s": 46.0063,
+      "ef_search": 20,
+      "recall@10": 0.9667,
+      "p50_ms": 1.674
+    },
+    {
+      "build_s": 46.0063,
+      "ef_search": 50,
+      "recall@10": 0.9907,
+      "p50_ms": 3.0547
+    },
+    {
+      "build_s": 46.0063,
+      "ef_search": 100,
+      "recall@10": 0.9967,
+      "p50_ms": 4.8882
+    },
+    {
+      "build_s": 46.0063,
+      "ef_search": 200,
+      "recall@10": 1.0,
+      "p50_ms": 7.8099
+    }
+  ]
+}
