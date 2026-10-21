@@ -1,0 +1,70 @@
+{
+  "ragforge_version": "0.2.0",
+  "dataset": "HotpotQA distractor (validation sample)",
+  "paragraphs": 2954,
+  "answerable": 300,
+  "unanswerable": 150,
+  "k": 10,
+  "embedder": "MiniLM-L6-v2 (384-d)",
+  "systems": [
+    {
+      "system": "BM25 (english)",
+      "recall": 0.9,
+      "all_gold": 0.8,
+      "all_gold_bridge": 0.7294,
+      "all_gold_comparison": 0.9878
+    },
+    {
+      "system": "Vector (MiniLM)",
+      "recall": 0.815,
+      "all_gold": 0.6533,
+      "all_gold_bridge": 0.5688,
+      "all_gold_comparison": 0.878
+    },
+    {
+      "system": "Hybrid RRF",
+      "recall": 0.895,
+      "all_gold": 0.7933,
+      "all_gold_bridge": 0.7156,
+      "all_gold_comparison": 1.0
+    },
+    {
+      "system": "Graph only",
+      "recall": 0.8533,
+      "all_gold": 0.7733,
+      "all_gold_bridge": 0.7385,
+      "all_gold_comparison": 0.8659
+    },
+    {
+      "system": "Hybrid RRF + entity graph",
+      "recall": 0.94,
+      "all_gold": 0.8867,
+      "all_gold_bridge": 0.844,
+      "all_gold_comparison": 1.0
+    },
+    {
+      "system": "Hybrid RRF + agentic bridge hop",
+      "recall": 0.9217,
+      "all_gold": 0.8533,
+      "all_gold_bridge": 0.8073,
+      "all_gold_comparison": 0.9756
+    }
+  ],
+  "abstention": [
+    {
+      "abstain_below": 0.3,
+      "wrongly_refused_answerable": 0,
+      "correctly_refused_unanswerable": 0.04
+    },
+    {
+      "abstain_below": 0.5,
+      "wrongly_refused_answerable": 0.0133,
+      "correctly_refused_unanswerable": 0.2467
+    },
+    {
+      "abstain_below": 0.7,
+      "wrongly_refused_answerable": 0.1267,
+      "correctly_refused_unanswerable": 0.7733
+    }
+  ]
+}

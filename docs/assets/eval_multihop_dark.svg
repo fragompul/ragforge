@@ -1,0 +1,16 @@
+<svg viewBox="0 0 680 352" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" role="img" aria-label="Both gold paragraphs within 10 passages">
+<rect width="680" height="352" rx="14" fill="#0b0f1a"/>
+<text x="24" y="34" font-size="17" font-weight="700" fill="#e7eaf3">Both gold paragraphs within 10 passages</text>
+<text x="24" y="54" font-size="12" fill="#8b93ab">HotpotQA distractor · 300 questions · 2,954 paragraphs</text>
+<line x1="214.0" y1="72" x2="214.0" y2="306" stroke="#232b42"/><text x="214.0" y="324" text-anchor="middle" font-size="11" fill="#8b93ab">0</text>
+<line x1="314.5" y1="72" x2="314.5" y2="306" stroke="#232b42"/><text x="314.5" y="324" text-anchor="middle" font-size="11" fill="#8b93ab">0.25</text>
+<line x1="415.0" y1="72" x2="415.0" y2="306" stroke="#232b42"/><text x="415.0" y="324" text-anchor="middle" font-size="11" fill="#8b93ab">0.5</text>
+<line x1="515.5" y1="72" x2="515.5" y2="306" stroke="#232b42"/><text x="515.5" y="324" text-anchor="middle" font-size="11" fill="#8b93ab">0.75</text>
+<line x1="616.0" y1="72" x2="616.0" y2="306" stroke="#232b42"/><text x="616.0" y="324" text-anchor="middle" font-size="11" fill="#8b93ab">1</text>
+<text x="202" y="98.0" text-anchor="end" font-size="12.5" fill="#e7eaf3">BM25 (english)</text><rect x="214" y="84" width="321.6" height="24" rx="5" fill="#ff6b2c"/><text x="543.6" y="98.0" font-size="12.5" font-weight="700" fill="#e7eaf3">0.8</text>
+<text x="202" y="136.0" text-anchor="end" font-size="12.5" fill="#e7eaf3">Vector (MiniLM)</text><rect x="214" y="122" width="262.6" height="24" rx="5" fill="#2dd4ef"/><text x="484.6" y="136.0" font-size="12.5" font-weight="700" fill="#e7eaf3">0.653</text>
+<text x="202" y="174.0" text-anchor="end" font-size="12.5" fill="#e7eaf3">Hybrid RRF</text><rect x="214" y="160" width="318.9" height="24" rx="5" fill="#8b7cf6"/><text x="540.9" y="174.0" font-size="12.5" font-weight="700" fill="#e7eaf3">0.793</text>
+<text x="202" y="212.0" text-anchor="end" font-size="12.5" fill="#e7eaf3">Graph only</text><rect x="214" y="198" width="310.9" height="24" rx="5" fill="#34d399"/><text x="532.9" y="212.0" font-size="12.5" font-weight="700" fill="#e7eaf3">0.773</text>
+<text x="202" y="250.0" text-anchor="end" font-size="12.5" fill="#e7eaf3">Hybrid RRF + entity graph</text><rect x="214" y="236" width="356.5" height="24" rx="5" fill="#ffb020"/><text x="578.5" y="250.0" font-size="12.5" font-weight="700" fill="#e7eaf3">0.887</text>
+<text x="202" y="288.0" text-anchor="end" font-size="12.5" fill="#e7eaf3">Hybrid RRF + agentic bridge hop</text><rect x="214" y="274" width="343.0" height="24" rx="5" fill="#f43f5e"/><text x="565.0" y="288.0" font-size="12.5" font-weight="700" fill="#e7eaf3">0.853</text>
+</svg>
