@@ -1,438 +1,331 @@
-# ragforge
+<div align="center">
+
+<img src="docs/assets/banner.svg" alt="RagForge — hybrid retrieval, forged from scratch" width="100%">
+
+<br>
 
 [![CI](https://github.com/fragompul/ragforge/actions/workflows/ci.yml/badge.svg)](https://github.com/fragompul/ragforge/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Type Checked: mypy](https://img.shields.io/badge/type_checked-mypy_strict-blue)](https://mypy-lang.org/)
-[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](https://github.com/fragompul/ragforge)
-[![Property-based tests: Hypothesis](https://img.shields.io/badge/property--based%20tests-hypothesis-6a1b9a.svg)](https://hypothesis.readthedocs.io/)
+[![Live demo](https://img.shields.io/badge/live%20demo-try%20it%20in%20your%20browser-ff6b2c?logo=webassembly&logoColor=white)](https://fragompul.github.io/ragforge/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776ab?logo=python&logoColor=white)](https://www.python.org/)
+[![Dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-34d399)](pyproject.toml)
+[![Type checked: mypy strict](https://img.shields.io/badge/types-mypy%20strict-2dd4ef)](https://mypy-lang.org/)
+[![Coverage](https://img.shields.io/badge/coverage-98%25-34d399)](#engineering-quality)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000)](https://github.com/astral-sh/ruff)
+[![MCP server](https://img.shields.io/badge/MCP-server-8b7cf6)](#-use-it-from-claude-mcp)
+[![License: MIT](https://img.shields.io/badge/license-MIT-ffb020)](LICENSE)
 
-A production-hardened, zero-required-dependency RAG (Retrieval-Augmented Generation) engine designed with clean architecture, strict typing, and high reliability:
-- **Multi-Strategy Chunking**: Hierarchical recursive, sentence-boundary, markdown header-aware, and sliding window chunkers with source character offsets.
-- **Hybrid Retrieval**: Okapi BM25 sparse keyword search combined with dense vector cosine search via **Weighted Reciprocal Rank Fusion (RRF)**.
-- **Approximate Nearest-Neighbor Search at Scale**: A from-scratch **HNSW** graph (`ragforge.ann`) as a pluggable, sub-linear alternative to brute-force cosine scan — see [`docs/benchmarks.md`](docs/benchmarks.md) for measured latency/recall numbers.
-- **Multi-Query Expansion**: Fans a query out into rewritten variants (LLM-based or custom) and fuses results via RRF, recovering vocabulary-mismatch misses hybrid search alone can't catch.
-- **Precision & Diversity Reranking**: Second-stage scoring with **Maximal Marginal Relevance (MMR)** (anti-redundancy), neural cross-encoder adapters, and heuristic token overlap.
-- **Metadata Filtering**: First-class attribute filtering (`filter_fn`) for multi-tenant and category isolation.
-- **Real Embedding Provider Adapters**: Lazy-import, zero-footprint bridges to OpenAI, Cohere, sentence-transformers, and Ollama — installing `ragforge` core never pulls in any of them.
-- **RAGAS-Style Evaluation Engine**: Context Precision (Set & MAP@k), Context Recall, Context F1, Faithfulness (hallucination detection), Answer Relevancy, and Semantic Similarity.
-- **Observability**: Dependency-free nested tracing (`ragforge.telemetry`) with console, in-memory, and OpenTelemetry-bridge exporters for per-stage latency breakdown.
-- **Index Serialization & Persistence**: Clean JSON save/load routines for offline batch indexing and fast serving startup.
-- **Production CLI & HTTP Serving**: Ingestion, querying, evaluation, benchmarking, and a dependency-free `ragforge serve` HTTP JSON API — all from one CLI.
+**[Live demo](https://fragompul.github.io/ragforge/)** · **[Benchmarks](docs/benchmarks.md)** · **[Evaluation](docs/evaluation.md)** · **[Guides](docs/guides.md)** · **[Testing](docs/testing.md)** · **[Math](docs/math.md)** · **[Architecture](docs/architecture.md)** · **[Changelog](CHANGELOG.md)**
+
+</div>
 
 ---
 
-## The Engineering Problem
+**RagForge is the retrieval stack production RAG systems depend on — hybrid search, reranking, guardrails, verifiable citations, agentic retrieval, evaluation and an MCP server — in a codebase small enough to read in an afternoon.** The core has **zero runtime dependencies**; everything heavy (NumPy, Claude, OpenAI, Cohere, sentence-transformers) is optional and lazily imported.
 
-Most RAG failures in production are not model failures—they are retrieval failures wearing an LLM's face:
+It is built to be *understood*, *measured* and *trusted*: strict typing, property-based tests, reproducible benchmarks on a public dataset, and a [web playground](https://fragompul.github.io/ragforge/) that runs **the real Python library in your browser** (Pyodide / WebAssembly) — no server, no API keys.
 
-1. **Diluted vs. Truncated Contexts**: Fixed-size chunking blindly splits sentences across boundaries or produces massive chunks that dilute keyword and vector matches.
-2. **Dense-Only Blindspots**: Pure vector search consistently fails on exact identifiers (error codes, order IDs, product SKUs, proper nouns) that sparse keyword search nails instantly.
-3. **Vocabulary Mismatch Survives Fusion**: Hybrid RRF fuses lexical and semantic signal for *one* phrasing of a query, but a paraphrase sharing no vocabulary with the target chunk ("cancel my plan" vs. "terminate subscription") can miss before fusion ever runs.
-4. **Context Redundancy**: Top-k retrieval often returns 5 variations of the same paragraph, saturating the LLM context window without adding net new information.
-5. **The Brute-Force Wall**: Linear cosine scan is exact but `O(n)` per query — fine at thousands of chunks, a real bottleneck at millions.
-6. **Lack of Regression Testing & Observability**: Chunking tweaks, embedding model upgrades, or prompt changes ship without automated signals measuring whether retrieval precision or faithfulness regressed, or visibility into which pipeline stage is actually slow.
+<div align="center">
+<a href="https://fragompul.github.io/ragforge/"><img src="docs/assets/screenshots/playground.jpg" alt="RagForge playground: BM25, vector and hybrid RRF results side by side" width="92%"></a>
+<br><sub>BM25 · vector · hybrid RRF side by side, with answer citations and a per-stage trace — <a href="https://fragompul.github.io/ragforge/">open the live demo</a></sub>
+</div>
 
-`ragforge` addresses all six challenges with modular components that can be inspected, tested, benchmarked, and customized.
+## Highlights
 
----
+| | |
+| :--- | :--- |
+| **Hybrid retrieval** | BM25 (inverted index) + dense vectors fused with weighted **Reciprocal Rank Fusion** — no score normalization. **nDCG@10 0.701 on BEIR SciFact** (+2.3 pts over the best single retriever); on FiQA and SCIDOCS plain vectors win, and the [report](docs/evaluation.md) says so. |
+| **HNSW from scratch** | Pure-Python approximate-nearest-neighbor graph with the paper's neighbor-selection heuristic: **recall@10 0.99 at `ef_search=50`** on real embeddings, with a visualizable search trace. |
+| **Guardrails** | Indirect **prompt-injection** screening (OWASP LLM01), **PII/secret redaction** and untrusted-data spotlighting on every retrieved context — benchmarked on public injection datasets with a train/test split ([`docs/guardrails.md`](docs/guardrails.md)). |
+| **Multi-hop & graph** | Entity-graph retrieval (GraphRAG-lite) and a bridge-entity agent: **both gold paragraphs found for 88.7 %** of HotpotQA questions vs. 79.3 % for plain hybrid ([`docs/multihop.md`](docs/multihop.md)). |
+| **Compact, fast indexes** | int8 / binary quantization (4× / 32× smaller, quality kept by rescoring), in-graph filtered HNSW, SPLADE, and a memory-mapped on-disk index. |
+| **Verifiable citations** | Each answer sentence is traced to **exact character offsets** in the source, with a groundedness score that doubles as a hallucination signal. |
+| **Agentic RAG** | Decompose → retrieve → grade → rewrite → retry — and **abstain** instead of hallucinating. Every decision is inspectable. |
+| **MCP server** | Expose any index to Claude and other assistants over the Model Context Protocol. Zero-dependency stdio JSON-RPC; read-only by default. |
+| **Evaluation** | nDCG / Recall / MRR (BEIR conventions), RAGAS-style metrics, an LLM-as-judge harness, and a one-command public-benchmark runner. |
+| **Production plumbing** | Streaming (SSE), semantic cache, OpenTelemetry-bridged tracing, NumPy backend, JSON persistence, HTTP server, Docker. |
+
+## Measured, not claimed
+
+Retrieval quality on **BEIR SciFact** (5,183 abstracts, 300 test queries) with ragforge's own indexes and `all-MiniLM-L6-v2` vectors — component scores match the published BEIR numbers, which is the sanity check that the implementations are right. Four datasets, including where hybrid fusion does *not* win, are in [`docs/evaluation.md`](docs/evaluation.md):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/eval_scifact_dark.svg">
+  <img alt="nDCG@10 on BEIR SciFact: BM25 0.664, BM25 english 0.678, vector 0.648, hybrid RRF 0.701" src="docs/assets/eval_scifact_light.svg" width="680">
+</picture>
+
+Search at scale (32-d clustered vectors, top-10, p50): exact pure-Python scan **51 ms** at 20k chunks vs. **HNSW 0.6 ms** (recall@10 ≈ 1.0) vs. NumPy exact **0.18 ms**. The BM25 inverted index is **12–15× faster** than the per-query scan it replaced. Full tables, ablations and the honest story of a recall bug found and fixed along the way are in [`docs/benchmarks.md`](docs/benchmarks.md) and [`docs/evaluation.md`](docs/evaluation.md) — both regenerated by single commands (`scripts/generate_benchmarks.py`, `scripts/eval_beir.py`).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ann_latency_dark.svg">
+  <img alt="Query latency vs corpus size: exact scan vs HNSW" src="docs/assets/ann_latency_light.svg" width="680">
+</picture>
+
+## Quickstart
+
+```bash
+pip install ragforge                 # zero dependencies
+pip install "ragforge[fast]"         # + NumPy exact search     (also: [anthropic] [openai] [cohere] [local])
+ragforge demo                        # guided offline tour: hybrid search, guardrails, citations, agents
+```
+
+```python
+from ragforge import RagPipeline, Guardrails, attribute
+from ragforge.extractive import extractive_generate_fn      # keyless baseline answerer
+
+rag = RagPipeline(
+    bm25_analyzer="english",
+    vector_backend="hnsw",                  # or "brute_force" | "numpy"
+    guardrails=Guardrails(action="sanitize"),
+    generate_fn=extractive_generate_fn(),   # swap in anthropic_generate_fn() / openai_generate_fn()
+)
+rag.ingest("eiffel", "The Eiffel Tower is in Paris. It was completed in 1889.")
+
+answer = rag.answer("When was the Eiffel Tower completed?", k=3)
+cited = attribute(answer.answer, answer.contexts)
+print(cited.to_markdown())          # → "The Eiffel Tower is in Paris. [1] It was completed in 1889. [1]" + source spans
+print(cited.groundedness)           # → 1.0
+```
+
+<details>
+<summary><b>See the full guided tour (<code>ragforge demo</code>)</b> — real program output</summary>
+<br>
+<img src="docs/assets/demo_terminal.svg" alt="Output of the ragforge demo command" width="100%">
+</details>
+
+## What's inside
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Retrieval**
+- Chunkers: recursive, sentence, markdown, fixed-window — all keep source **character offsets**
+- BM25 inverted index (`analyzer="english"`: stopwords + light stemming)
+- Vector backends: exact scan · **NumPy** exact · **HNSW** (in-graph filters) · **int8 / binary** quantized
+- **SPLADE** sparse, N-way fusion, **query router**, contextual retrieval, HyDE, **entity graph**
+- **Memory-mapped index directories** (atomic commits, compaction), async + ASGI, multi-tenancy
+- Weighted **RRF** hybrid fusion, **multi-query** expansion
+- Rerankers: MMR (diversity, optionally over the fused score), heuristic, cross-encoder adapter
+- Metadata filtering (`filter_fn`) on every path
+
+**Generation & grounding**
+- Pluggable `generate_fn`; **Claude / OpenAI / Ollama** adapters; keyless extractive answerer
+- **Streaming** (`answer_stream`, SSE endpoint, provider stream adapters)
+- **Verifiable citations** + groundedness; `[n]` markers are *verified*, not trusted
+
+</td>
+<td width="50%" valign="top">
+
+**Safety**
+- Prompt-injection detector (EN + ES rules, hidden-Unicode, exfiltration patterns)
+- PII / secret redaction (e-mail, phone, Luhn-valid cards, API keys, IPs)
+- Policies: flag · sanitize · drop; spotlighting prompt formatter
+- Hardened HTTP server (body/`k` limits) and **read-only-by-default MCP tools**
+
+**Agents & operations**
+- `AgenticRag`: decompose, grade, rewrite, abstain — LLM or lexical decision functions
+- **MCP server** (`ragforge mcp`) for Claude Desktop / Claude Code / any MCP client
+- **Semantic cache** with TTL, namespaces and corpus-change invalidation
+- Tracing → console · memory · **OpenTelemetry**; JSON persistence; Docker
+
+**Evaluation**
+- `ragforge.metrics`: nDCG, Recall, Precision, MRR, MAP
+- RAGAS-style metrics, **LLM-as-judge** (rubrics, JSON verdicts, robust parsing)
+- BEIR runner (4 datasets), HotpotQA multi-hop, guardrail benchmarks, charts and Markdown reports
+- Hypothesis fuzzing, a stateful disk-index model test and mutation testing ([`docs/testing.md`](docs/testing.md))
+
+</td>
+</tr>
+</table>
+
+## 🔌 Use it from Claude (MCP)
+
+```bash
+ragforge ingest ./docs -i kb.json --backend hnsw --analyzer english
+claude mcp add ragforge -- ragforge mcp -i kb.json --guardrails sanitize
+```
+
+Claude can now call `search_knowledge_base` (hybrid / BM25 / vector), `ask_knowledge_base` (answer **with sentence-level citations and a groundedness score**) and `knowledge_base_stats`. Ingestion is off unless you pass `--allow-ingest`: anything an LLM can call, an attacker's prompt can call. [`examples/mcp_client_demo.py`](examples/mcp_client_demo.py) drives the server with raw JSON-RPC so you can see the whole protocol.
+
+## Guides in 60 seconds
+
+<details>
+<summary><b>🛡️ Guardrails against indirect prompt injection and PII</b></summary>
+
+```python
+from ragforge import Guardrails, RagPipeline
+from ragforge.guardrails import spotlight_prompt_formatter
+
+rag = RagPipeline(guardrails=Guardrails(action="sanitize"),       # or "flag" / "drop"
+                  prompt_formatter=spotlight_prompt_formatter)    # wraps contexts as untrusted data
+ctx = rag.retrieve("What is the shipping time?")[0]
+ctx.text         # "... [removed: suspected prompt injection] ... [REDACTED:email]"
+ctx.guardrails   # {"risk": 0.9, "findings": [{"kind": "injection", "rule": "instruction_override", ...}]}
+```
+Pattern rules make poisoning visible and auditable; they are a first layer, not a complete defense — see the [Security Lab](https://fragompul.github.io/ragforge/#security).
+</details>
+
+<details>
+<summary><b>🧭 Agentic RAG that knows when to abstain</b></summary>
+
+```python
+from ragforge import AgenticRag
+from ragforge.agent import heuristic_decompose_fn, llm_grade_fn, llm_rewrite_fn
+from ragforge import anthropic_complete_fn
+
+complete = anthropic_complete_fn()                       # any prompt -> text function
+agent = AgenticRag(rag, decompose_fn=heuristic_decompose_fn,
+                   grade_fn=llm_grade_fn(complete), rewrite_fn=llm_rewrite_fn(complete))
+result = agent.run("What does ERR-4012 mean? How does RRF work?")
+[s.kind for s in result.steps]   # decompose, retrieve, grade, retrieve, grade, answer
+result.abstained                 # True when evidence stays insufficient
+```
+</details>
+
+<details>
+<summary><b>⚡ Streaming, semantic cache and the HTTP API</b></summary>
+
+```python
+for event in rag.answer_stream("How does hybrid search work?"):   # contexts → token… → done
+    if event["type"] == "token": print(event["text"], end="")
+
+from ragforge import CachedPipeline
+cached = CachedPipeline(rag)            # rephrased repeats are served without re-running the pipeline
+```
+```bash
+ragforge serve -i kb.json --guardrails sanitize        # POST /query · POST /query/stream (SSE) · GET /health
+```
+</details>
+
+<details>
+<summary><b>📏 Evaluate retrieval and answers</b></summary>
+
+```python
+from ragforge.metrics import ndcg_at_k, recall_at_k
+from ragforge.judge import evaluate_with_judge
+from ragforge import anthropic_complete_fn
+
+ndcg_at_k(["d3", "d1", "d9"], {"d1": 1, "d2": 1}, k=10)
+evaluate_with_judge(rag, cases, anthropic_complete_fn(), rubrics=("faithfulness", "correctness"))
+```
+```bash
+python scripts/eval_beir.py --download scifact --data-dir data && python scripts/eval_beir.py --data-dir data/scifact --embedder minilm
+```
+</details>
+
+More in [`docs/guides.md`](docs/guides.md) and the runnable [`examples/`](examples/).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Ingestion
-        Doc["Document"] --> Chunker["Chunker\n(Recursive / Sentence / Markdown)"]
-        Chunker --> Chunks["Chunk[]\n(Offsets + Metadata)"]
+    subgraph Ingest["Ingestion"]
+        D[Document] --> C["Chunker<br/>offsets + metadata"]
     end
-
-    subgraph Indexing
-        Chunks --> BM25["BM25 Index\n(Sparse Lexical)"]
-        Chunks --> Vector["Vector Index\n(Brute-Force or HNSW)"]
+    subgraph Index["Indexes"]
+        C --> B["BM25<br/>inverted index"]
+        C --> V["Vectors<br/>exact · NumPy · HNSW"]
     end
-
-    subgraph Retrieval
-        Query["Query"] -.->|optional expansion| MultiQ["Multi-Query Fan-Out"]
-        MultiQ --> BM25
-        MultiQ --> Vector
-        Query --> BM25
-        Query --> Vector
-        BM25 -->|Top-N| Hybrid["Hybrid RRF Fusion\nΣ w_i / (k + rank_i)"]
-        Vector -->|Top-N| Hybrid
+    subgraph Retrieve["Retrieval"]
+        Q[Query] -.->|multi-query| MQ[Expansion]
+        MQ --> B & V
+        Q --> B & V
+        B --> F["Weighted RRF"]
+        V --> F
+        F --> R["Rerank<br/>MMR · cross-encoder"]
     end
-
-    subgraph Reranking
-        Hybrid --> Rerank["Reranker\n(MMR Diversity / Cross-Encoder)"]
-        Rerank --> TopK["Top-K Contexts"]
+    subgraph Safe["Safety"]
+        R --> G["Guardrails<br/>injection · PII"]
     end
-
-    subgraph Generation
-        TopK --> Prompt["Prompt Formatter"]
-        Query --> Prompt
-        Prompt --> LLM["LLM Generation"]
-        LLM --> Answer["RagAnswer\n(Attribution + Latency)"]
+    subgraph Gen["Generation"]
+        G --> P[Prompt] --> L["LLM<br/>Claude · OpenAI · local"]
+        L --> CI["Citations<br/>spans · groundedness"]
     end
-
-    subgraph Serving["Observability & Serving"]
-        Answer --> Tracer["Tracer\n(nested spans)"]
-        Answer --> HTTP["ragforge serve\n(HTTP JSON API)"]
-    end
+    A["Agent loop<br/>grade · rewrite · abstain"] -.-> Retrieve
+    CI --> S["Serve<br/>CLI · HTTP/SSE · MCP · Web"]
+    S -.-> T["Tracer → OpenTelemetry"]
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for deep architectural diagrams and mathematical formulations.
+Design rationale for every box lives in [`docs/architecture.md`](docs/architecture.md); derivations (BM25, RRF, MMR's $(1-1/e)$ guarantee, HNSW complexity and the neighbor-selection heuristic, groundedness) are in [`docs/math.md`](docs/math.md).
 
----
+<div align="center">
+<img src="docs/assets/screenshots/hnsw.jpg" alt="HNSW Explorer: a query navigating the real graph" width="48%">
+<img src="docs/assets/screenshots/agent.jpg" alt="Agent Lab: decision trail with grading and citations" width="48%">
+<br><sub>Left: the <b>HNSW Explorer</b> animates the library's real graph. Right: the <b>Agent Lab</b> shows every decision.</sub>
+</div>
 
-## Installation
+## Command line
 
 ```bash
-# Clone the repository
-git clone https://github.com/fragompul/ragforge.git
-cd ragforge
-
-# Install in editable mode with development dependencies
-pip install -e ".[dev]"
+ragforge demo                                                    # offline guided tour
+ragforge ingest ./docs -i kb.json --backend hnsw --analyzer english
+ragforge query "How does hybrid search work?" -i kb.json --reranker mmr --agentic --cite --guardrails sanitize --trace
+ragforge evaluate cases.json -i kb.json -o report.json
+ragforge serve -i kb.json --port 8000 --guardrails sanitize      # HTTP JSON + SSE
+ragforge mcp -i kb.json                                          # Model Context Protocol over stdio
+ragforge benchmark                                               # quick throughput/latency check
+ragforge chat -i kb.json                                         # streaming terminal chat with citations
+python scripts/build_mcpb.py                                     # one-click Claude Desktop extension
 ```
 
-`ragforge` has **zero required third-party dependencies** for core operations, keeping installations instant and secure.
+## Runnable examples
 
----
-
-## Quickstart
-
-### 1. Basic Ingestion, Hybrid Search & Answering
-
-```python
-from ragforge import RagPipeline
-from ragforge.chunking import RecursiveCharacterChunker
-from ragforge.reranking import HeuristicReranker
-
-# Initialize pipeline with recursive chunker and heuristic reranker
-pipeline = RagPipeline(
-    chunker=RecursiveCharacterChunker(chunk_size=300, chunk_overlap=40),
-    reranker=HeuristicReranker(),
-)
-
-# Ingest documents with metadata
-pipeline.ingest(
-    doc_id="eiffel_tower",
-    text="The Eiffel Tower is in Paris, France. It was completed in 1889 and stands 330 meters tall.",
-    metadata={"category": "monuments", "year": 1889},
-)
-
-# Retrieve contexts and generate an answer
-response = pipeline.answer("How tall is the Eiffel Tower and when was it built?", k=2)
-
-print(f"Answer: {response.answer}")
-print(f"Retrieval Latency: {response.retrieval_latency_ms:.2f} ms")
-for ctx in response.contexts:
-    print(f"  [{ctx.doc_id}] (Score: {ctx.score:.3f}, Source: {ctx.provenance}) :: {ctx.text}")
-```
-
----
-
-### 2. Production Integration (OpenAI / Anthropic / Local Transformers)
-
-Drop in external embedding and generation functions without changing the pipeline interface. The example below wires an `embed_fn`/`generate_fn` by hand to show the interface contract; for OpenAI, Cohere, sentence-transformers, or Ollama specifically, [`ragforge.embeddings_providers`](#7-real-embedding-provider-adapters) gives you a one-line factory instead.
-
-```python
-import openai
-from ragforge import RagPipeline
-from ragforge.chunking import SentenceChunker
-from ragforge.reranking import CrossEncoderReranker
-
-client = openai.OpenAI()
-
-def openai_embed(text: str) -> list[float]:
-    res = client.embeddings.create(input=[text], model="text-embedding-3-small")
-    return res.data[0].embedding
-
-def openai_generate(query: str, contexts: list[str]) -> str:
-    context_block = "\n\n".join(contexts)
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "Answer the question strictly based on the provided context."},
-            {"role": "user", "content": f"Context:\n{context_block}\n\nQuestion: {query}"},
-        ],
-        temperature=0.0,
-    )
-    return res.choices[0].message.content or ""
-
-pipeline = RagPipeline(
-    chunker=SentenceChunker(max_chars=500, overlap_sentences=1),
-    embed_fn=openai_embed,
-    generate_fn=openai_generate,
-)
-```
-
----
-
-### 3. Metadata Filtering & MMR Diversity Reranking
-
-```python
-from ragforge import RagPipeline
-from ragforge.chunking import RecursiveCharacterChunker
-from ragforge.reranking import MaxMarginalRelevanceReranker
-
-pipeline = RagPipeline(
-    chunker=RecursiveCharacterChunker(chunk_size=300, chunk_overlap=30),
-    reranker=MaxMarginalRelevanceReranker(lambda_mult=0.7),  # Balance relevance & novelty
-)
-
-pipeline.ingest_batch([
-    {"id": "doc1", "text": "Enterprise SLA guarantees 99.99% uptime.", "metadata": {"tier": "enterprise"}},
-    {"id": "doc2", "text": "Standard SLA guarantees 99.9% uptime.", "metadata": {"tier": "standard"}},
-])
-
-# Filter strictly for enterprise tier during retrieval
-res = pipeline.answer(
-    "What is the SLA uptime guarantee?",
-    k=1,
-    filter_fn=lambda chunk: chunk.metadata.get("tier") == "enterprise",
-)
-```
-
----
-
-### 4. RAGAS-Style Automated Quality Evaluation
-
-Run automated regressions to evaluate retrieval precision, context recall, faithfulness, and answer relevancy:
-
-```python
-from ragforge.evaluation import EvalCase, evaluate_pipeline
-
-eval_cases = [
-    EvalCase(
-        query="How tall is the Eiffel Tower?",
-        relevant_doc_ids=["eiffel_tower"],
-        ground_truth_answer="The Eiffel Tower is 330 meters tall.",
-    ),
-]
-
-summary = evaluate_pipeline(pipeline, eval_cases, k=2)
-
-# Print formatted markdown table
-print(summary.to_markdown_table())
-
-# Save report for CI artifact tracking
-summary.save("eval_report.json")
-```
-
-Output:
-| Metric | Mean Score |
+| Example | Shows |
 | :--- | :--- |
-| **Overall Score** | `0.9850` |
-| **Faithfulness** | `1.0000` |
-| **Answer Relevancy** | `0.9520` |
-| **Context Precision** | `1.0000` |
-| **Ranked Precision (MAP@k)** | `1.0000` |
-| **Context Recall** | `1.0000` |
-| **Context F1** | `1.0000` |
-| **Answer Similarity** | `0.9880` |
-| **Mean Latency (ms)** | `1.42 ms` |
+| [`basic_pipeline.py`](examples/basic_pipeline.py) | ingestion → hybrid retrieval → answer |
+| [`hybrid_vs_single.py`](examples/hybrid_vs_single.py) | hybrid RRF beating BM25 and vector alone |
+| [`guardrails_demo.py`](examples/guardrails_demo.py) | poisoned document + PII neutralized before the prompt |
+| [`citations_and_agent.py`](examples/citations_and_agent.py) | verifiable citations, multi-hop agent, abstention |
+| [`mcp_client_demo.py`](examples/mcp_client_demo.py) | raw JSON-RPC conversation with `ragforge mcp` |
+| [`cache_and_judge.py`](examples/cache_and_judge.py) | semantic cache and LLM-as-judge evaluation |
+| [`evaluate_suite.py`](examples/evaluate_suite.py) · [`metadata_filtering_and_mmr.py`](examples/metadata_filtering_and_mmr.py) · [`persistence_and_serialization.py`](examples/persistence_and_serialization.py) | evaluation, filtering + MMR, persistence |
 
----
+## Engineering quality
 
-### 5. Index Persistence & Serving
-
-```python
-# Build and persist index in an offline batch job
-pipeline.save("production_index.json")
-
-# Load pre-built index in serving container in sub-milliseconds
-serving_pipeline = RagPipeline.load("production_index.json")
-answer = serving_pipeline.answer("What is our refund policy?", k=3)
-```
-
----
-
-### 6. Approximate Nearest-Neighbor Search at Scale (HNSW)
-
-`VectorIndex` does an exact, brute-force cosine scan (`O(n)` per query). `ApproxVectorIndex` swaps in a from-scratch [HNSW graph](src/ragforge/ann.py) for expected `O(log n)` search, as a drop-in backend selectable from `RagPipeline` itself — no changes to retrieval, reranking, or evaluation code:
-
-```python
-pipeline = RagPipeline(
-    chunker=RecursiveCharacterChunker(chunk_size=300, chunk_overlap=40),
-    use_ann=True,
-    ann_params={"m": 16, "ef_construction": 200, "ef_search": 50},
-)
-# Saving/loading preserves the chosen backend automatically.
-pipeline.save("large_index.json")
-reloaded = RagPipeline.load("large_index.json")
-```
-
-See [`docs/math.md`](docs/math.md#4-hnsw-approximate-nearest-neighbor-search-srcragforgeannpy) for the complexity argument and [`docs/benchmarks.md`](docs/benchmarks.md) for measured latency/recall numbers versus brute force.
-
----
-
-### 7. Real Embedding Provider Adapters
-
-Lazy-import adapters bridge `ragforge`'s zero-dependency core to real embedding models, each pulling in its client library only when called:
-
-```python
-from ragforge.embeddings_providers import cached_embed_fn, openai_embed_fn
-
-# pip install ragforge[openai]
-embed_fn = cached_embed_fn(openai_embed_fn(model="text-embedding-3-small"))
-pipeline = RagPipeline(embed_fn=embed_fn)
-```
-
-`cohere_embed_fn`, `sentence_transformers_embed_fn` (`ragforge[local]`, fully offline), and `ollama_embed_fn` (no client library, plain HTTP to a local server) follow the same pattern. `cached_embed_fn` wraps any of them with an LRU cache to avoid re-embedding repeated text.
-
----
-
-### 8. Multi-Query Expansion
-
-Fan a query out into rewritten variants and fuse the results via the same Reciprocal Rank Fusion used to combine BM25 and vector search — recovering misses caused by vocabulary mismatch rather than retrieval failure:
-
-```python
-from ragforge.query_expansion import llm_query_expansion_fn
-
-pipeline = RagPipeline(
-    generate_fn=my_llm_generate_fn,
-    query_expansion_fn=llm_query_expansion_fn(my_llm_generate_fn, num_variants=3),
-)
-# "cancel my plan" now also retrieves against LLM-generated variants like
-# "terminate my subscription", fused with the original query via RRF.
-answer = pipeline.answer("cancel my plan", k=3)
-```
-
----
-
-### 9. Observability: Per-Stage Tracing
-
-Nested spans around retrieval, fusion, reranking, and generation — with zero required tracing dependency:
-
-```python
-from ragforge.telemetry import InMemoryExporter, Tracer
-
-exporter = InMemoryExporter()
-pipeline = RagPipeline(tracer=Tracer(exporters=[exporter]))
-pipeline.answer("How does hybrid search work?", k=3)
-
-for span in exporter.spans:
-    print(f"{span.name}: {span.duration_ms:.2f}ms")
-# retrieve -> fusion_search, rerank; generate -- nested under "answer"
-```
-
-Bridge into a real observability backend with `ragforge.telemetry.otel_exporter(tracer)` (requires `opentelemetry-api`), or print live traces from the CLI with `ragforge query "..." --trace`.
-
----
-
-### 10. Serving Over HTTP
-
-A minimal, dependency-free JSON API built on `http.server` — no web framework required:
-
-```python
-from ragforge.server import serve_forever_blocking
-
-pipeline = RagPipeline.load("production_index.json")
-serve_forever_blocking(pipeline, host="0.0.0.0", port=8000)
-# GET  /health -> {"status": "ok", "document_count": N, "chunk_count": M}
-# POST /query  -> {"query": "...", "k": 3} -> RagAnswer.to_dict()
-```
-
-Or from the CLI: `ragforge serve --index production_index.json --port 8000`.
-
----
-
-## Command Line Interface (CLI)
-
-`ragforge` provides a built-in CLI for indexing, querying, evaluating, and benchmarking:
+- **Strictly typed** (`mypy --strict`, `py.typed` shipped), formatted and linted with `ruff`, pre-commit hooks included.
+- **~98 % test coverage** with branch coverage, **Hypothesis property-based tests**, a real-socket HTTP test suite, a real-subprocess MCP test, and examples executed as integration tests.
+- **CI matrix** (Python 3.11–3.13) runs lint, types, tests with and without NumPy, a CLI smoke test, a Docker build, and **builds the Pages site**.
+- **Honest benchmarking**: every figure is produced by a script in `scripts/`; a defect found in the original HNSW (recall plateau) was diagnosed, fixed with the paper's heuristic, and documented rather than hidden.
+- **Zero runtime dependencies**: the library, the CLI, the HTTP server and the MCP server are standard-library Python.
 
 ```bash
-# Ingest markdown and text documentation into a persistent index (add --ann for HNSW)
-ragforge ingest ./docs --index rag_index.json --chunk-size 400 --ann
-
-# Query the index with MMR reranking and a per-stage latency trace
-ragforge query "How does hybrid search work?" --index rag_index.json --reranker mmr -k 3 --trace
-
-# Run automated evaluation test suite
-ragforge evaluate eval_cases.json --index rag_index.json -o report.json
-
-# Run synthetic throughput and latency benchmark
-ragforge benchmark
-
-# Serve the index over a minimal dependency-free HTTP JSON API
-ragforge serve --index rag_index.json --port 8000
-```
-
----
-
-## Runnable Examples
-
-Complete, self-contained examples are available in the [`examples/`](examples/) directory:
-
-```bash
-python examples/basic_pipeline.py                  # End-to-end ingestion, retrieval & answers
-python examples/hybrid_vs_single.py                # Demonstrates hybrid RRF beating BM25/Vector alone
-python examples/evaluate_suite.py                  # Automated RAGAS-style evaluation and reporting
-python examples/metadata_filtering_and_mmr.py      # Metadata filtering and MMR context diversity
-python examples/persistence_and_serialization.py   # Index serialization and zero-recomputation loading
-```
-
----
-
-## Benchmarks
-
-Real, reproducible measurements (not vibes) comparing brute-force vs. HNSW search and reporting ingestion throughput — generated by [`scripts/generate_benchmarks.py`](scripts/generate_benchmarks.py) using only `ragforge`'s own code:
-
-<img src="docs/assets/ann_latency.svg" alt="Query latency: brute-force vs HNSW" width="600">
-
-Full numbers, the recall-vs-`ef_search` deep dive, and ingestion throughput are in [`docs/benchmarks.md`](docs/benchmarks.md).
-
----
-
-## Key Design Decisions & Rationale
-
-Full derivations for every item below live in [`docs/math.md`](docs/math.md).
-
-- **Rank-Based Fusion (RRF) vs Score Blending**: BM25 scores are unbounded ($0 \to \infty$) whereas cosine similarities range in $[-1.0, 1.0]$. RRF fuses rank positions rather than raw magnitudes, preventing scale distortion.
-- **MMR for Diversity**: Mitigates "context redundancy," selecting diverse chunks across relevant sources so LLMs receive rich, non-repetitive contexts. The greedy selection loop is a submodular-maximization approximation with a provable $(1 - 1/e)$ optimality guarantee, not just a heuristic.
-- **HNSW for Sub-Linear Search**: A multi-layer navigable graph gives expected $O(\log n)$ query time against brute force's $O(n)$, at the cost of exactness — deletions are lazy tombstones, a structural property of graph-based ANN shared by production systems like hnswlib, not an implementation gap.
-- **Rank-Aware Context Precision (MAP@k)**: Measures whether relevant documents were placed at top ranks, catching ordering regressions that set-based precision misses.
-- **Multi-Query RRF over Single-Query Retrieval**: Query rewriting fan-out is fused with the *same* RRF algorithm used for BM25/vector fusion, rather than a separate merging strategy — one mental model for combining any number of ranked lists.
-- **Lazy-Import Adapters over Optional Dependencies**: Real embedding providers and OpenTelemetry are wired via factory functions that import their client library only when called, so `pip install ragforge` never pulls in packages a given deployment doesn't use.
-- **Deterministic Embeddings for CI**: Built-in `hashing_embed` uses deterministic CRC32 hashing to enable zero-network unit tests and reproducible benchmarks in CI environments.
-
----
-
-## Development & Verification
-
-```bash
-# Install development dependencies (pytest, ruff, mypy, hypothesis)
 pip install -e ".[dev]"
-
-# Format code
-ruff format src tests examples scripts
-
-# Lint code
-ruff check src tests examples scripts
-
-# Strict static type checking
+ruff format --check src tests examples scripts web && ruff check src tests examples scripts web
 mypy src
-
-# Run test suite (incl. Hypothesis property-based tests) with branch coverage validation
-pytest --cov=ragforge --cov-report=term-missing --cov-fail-under=90
+pytest --cov=ragforge --cov-fail-under=90
+python scripts/build_site.py && python -m http.server -d site 8000     # the web playground
 ```
 
----
+<details>
+<summary><b>Repository map</b></summary>
 
-## License
+```
+src/ragforge/   chunking · index (BM25, vectors) · ann (HNSW) · fast (NumPy) · reranking · pipeline
+                quantization · fusion · sparse · graph · routing · contextual · storage · aio · asgi · tenancy · chat
+                guardrails · citations · agent · judge · metrics · cache · extractive · mcp_server · server
+                llm_providers · embeddings_providers · telemetry · evaluation · cli · demo · sample
+web/            playground (HTML + ES modules + Pyodide worker + Python bridge)
+scripts/        generate_benchmarks · eval_beir · eval_multihop · eval_guardrails · eval_contextual
+                build_site · build_mcpb · build_space · make_notebook · render_terminal · svg_charts
+docs/           architecture · math · benchmarks · evaluation · multihop · guardrails · testing · guides · blog/
+notebooks/      Colab quickstart
+tests/          unit, property-based, integration, protocol and example tests
+```
+</details>
 
-This project is licensed under the [MIT License](LICENSE).
+## Roadmap
 
----
+- [ ] Late-interaction (ColBERT-style) reranker adapter
+- [ ] LLM-backed entity extraction and agent grading evaluated on HotpotQA
+- [ ] Streaming MCP tool results and resource subscriptions
+- [ ] Native (Rust/C) distance kernels for the quantized scans
 
-## Author
+Issues and ideas are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-**Francisco Javier Gómez Pulido**
+## License & author
 
-*AI Lead @ AAPEX | Double Degree in Mathematics & Computer Science | Master's in Artificial Intelligence*
+[MIT](LICENSE). Built by **Francisco Javier Gómez Pulido** — *AI Lead @ AAPEX · Double Degree in Mathematics & Computer Science · Master's in Artificial Intelligence*.
 
-📫 **Let's connect:**
-- **LinkedIn:** [linkedin.com/in/frangomezpulido](https://www.linkedin.com/in/frangomezpulido)
-- **GitHub:** [github.com/fragompul](https://github.com/fragompul)
-- **Email:** [frangomezpulido2002@gmail.com](mailto:frangomezpulido2002@gmail.com)
+[LinkedIn](https://www.linkedin.com/in/frangomezpulido) · [GitHub](https://github.com/fragompul) · [Email](mailto:frangomezpulido2002@gmail.com)
+
+If RagForge is useful or interesting to you, a ⭐ helps others find it.
