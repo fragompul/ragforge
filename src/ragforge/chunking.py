@@ -31,9 +31,21 @@ class Chunk:
     metadata: dict[str, Any] = field(default_factory=dict)
     start_char: int = 0
     end_char: int = 0
+    context: str = ""
+
+    @property
+    def index_text(self) -> str:
+        """Text used for indexing: the situating ``context`` (if any) followed by the chunk.
+
+        Contextual retrieval prepends a short description of where a chunk sits in its
+        document so that terms the chunk itself lacks (the document title, the section
+        heading) can still match. Only indexing sees it; answers, prompts and citations
+        use the original ``text``.
+        """
+        return f"{self.context}\n{self.text}" if self.context else self.text
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "id": self.id,
             "text": self.text,
             "doc_id": self.doc_id,
@@ -42,6 +54,9 @@ class Chunk:
             "start_char": self.start_char,
             "end_char": self.end_char,
         }
+        if self.context:
+            payload["context"] = self.context
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Chunk:
@@ -53,6 +68,7 @@ class Chunk:
             metadata=data.get("metadata", {}),
             start_char=data.get("start_char", 0),
             end_char=data.get("end_char", 0),
+            context=data.get("context", ""),
         )
 
 
