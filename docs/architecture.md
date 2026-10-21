@@ -128,6 +128,71 @@ Indices serialize cleanly to JSON:
 
 ---
 
+### H. Guardrails Live in the Pipeline, Not in the Prompt
+
+`RagPipeline(guardrails=...)` screens each retrieved context *after* reranking
+and *before* the prompt is formatted, so every consumer -- `answer`,
+`answer_stream`, the agent, the HTTP server and the MCP server -- inherits the
+same policy. Findings travel with the chunk (`RetrievedChunk.guardrails`) and
+as a `guardrails` tracer span, which keeps poisoning visible and auditable
+rather than silently filtered.
+
+### I. Verifiable Citations as Post-Processing
+
+Attribution (`ragforge.citations.attribute`) is a pure function of
+`(answer, contexts)`, not a generation mode. It therefore works for extractive
+answers, any LLM, and answers that already contain `[1]` markers (which it
+*verifies* rather than trusts).
+
+### J. The Agent Is a Thin Loop over the Pipeline
+
+`AgenticRag` adds no new retrieval machinery: it calls `pipeline.retrieve`,
+so hybrid fusion, reranking, guardrails and tracing all apply unchanged. Its
+decision points (decompose / grade / rewrite) are plain callables with
+deterministic lexical defaults and `llm_*` factories, and every step is
+recorded for inspection.
+
+### K. MCP Is a Transport, Not a Feature
+
+`ragforge.mcp_server.MCPServer` is a transport-agnostic JSON-RPC handler; the
+stdio loop is ~15 lines. Tools are read-only unless the operator opts in to
+ingestion, because anything an LLM can call, an attacker's prompt can call.
+
+### L. The Web Playground Runs the Library, Not a Re-Implementation
+
+`web/` is static HTML/ES modules plus a zip of `src/ragforge`, loaded into
+Pyodide (CPython on WebAssembly) inside a Web Worker. `web/bridge.py` is the
+only glue, exchanging JSON strings; `tests/test_web_bridge.py` exercises it in
+CPython so the demo cannot drift from the library.
+
+### M. Every Extra Ranker Is Just Another RRF Source
+
+SPLADE, the entity graph and any custom index plug into `extra_indexes` and join the same weighted RRF as BM25 and
+vectors (`FusionRetriever` when used standalone). Rank fusion needs no score calibration, so adding a ranker never
+requires retuning the others. The query router only changes the *weights* per query.
+
+### N. Quantize for Search, Rescore for Quality
+
+Codes (int8, 1 bit) are only used to pick a candidate pool; the final ordering uses the full-precision vectors. This
+is why int8 matches the float index in the [evaluation](evaluation.md) and binary loses little: the codes never decide
+the final rank on their own.
+
+### O. Filters Belong Inside the Graph Walk
+
+Over-fetching and post-filtering silently returns short lists under selective filters. Evaluating the predicate during
+the traversal, with an exact-scan fallback, turns "wrong" into "slower" (see the [blog post](blog/hnsw-recall-bug.md)).
+
+### P. On-Disk Indexes Are a Directory, Not a Bigger JSON
+
+`DiskIndex` memory-maps vectors, stores the graph in CSR form, appends chunks to a log and switches versions with an
+atomic manifest rename under a single-writer lock. Opening is O(1) in corpus size and a crash leaves the previous
+version readable.
+
+### Q. Serving and Tenancy Stay Thin
+
+The ASGI app is ~one file of pure ASGI (no framework); `MultiTenantRag` gives each tenant an isolated pipeline, so
+isolation is by construction rather than by a `tenant_id` filter that someone can forget.
+
 ## 4. Further Reading
 
 See [`docs/math.md`](math.md) for full derivations behind every scoring

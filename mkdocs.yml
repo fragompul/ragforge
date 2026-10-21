@@ -1,0 +1,41 @@
+site_name: RagForge
+site_description: Retrieval-augmented generation toolkit with hybrid search, guardrails and verifiable citations.
+site_url: https://fragompul.github.io/ragforge/docs/
+repo_url: https://github.com/fragompul/ragforge
+repo_name: fragompul/ragforge
+docs_dir: docs
+strict: true
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep orange
+      toggle: {icon: material/weather-night, name: Dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep orange
+      toggle: {icon: material/weather-sunny, name: Light mode}
+  features: [navigation.sections, content.code.copy, search.highlight]
+markdown_extensions:
+  - admonition
+  - tables
+  - toc: {permalink: true}
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.arithmatex: {generic: true}
+extra_javascript:
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
+nav:
+  - Home: index.md
+  - Guides: guides.md
+  - Architecture: architecture.md
+  - Math: math.md
+  - Evaluation:
+      - BEIR & ablations: evaluation.md
+      - Multi-hop: multihop.md
+      - Guardrails: guardrails.md
+      - Benchmarks: benchmarks.md
+  - Testing: testing.md
+  - Blog:
+      - HNSW recall bug: blog/hnsw-recall-bug.md

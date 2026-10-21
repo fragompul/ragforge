@@ -209,6 +209,47 @@ both present in `HNSWIndex`:
    which is far less likely to start in a bad local neighborhood than
    picking a random layer-0 entry point.
 
+### 4.4b Neighbor selection: why "link the M closest" is not enough
+
+Linking a new node $q$ to its $M$ nearest candidates looks natural and is
+wrong on clustered data. The nearest candidates are usually *mutual* nearest
+neighbors, all sitting in the same clump; the resulting edges are redundant,
+no edge leaves the cluster, and the graph decomposes into islands that a
+greedy walk can enter but not escape (or never enter at all, if every inbound
+edge was pruned).
+
+The HNSW paper's heuristic (Algorithm 4, `HNSWIndex._select_neighbors`) keeps
+a candidate $e$ from the sorted list only if it is *closer to $q$ than to any
+neighbor already selected*:
+
+$$
+\text{keep } e \iff \forall r \in R:\; d(e, q) < d(e, r)
+$$
+
+i.e. $e$ provides a direction not already covered by $R$ — a relative
+neighborhood graph criterion. Rejected candidates back-fill unused slots
+(`keepPrunedConnections`) so no node is left under-connected. Two
+implementation details matter in practice:
+
+1. **Exact duplicates.** Identical vectors satisfy $d(e,r) = d(e,q)$ for every
+   candidate, so a pile of duplicates can occupy all $M$ slots and strand a
+   genuinely different vector with no inbound edges. `_select_neighbors`
+   therefore treats an exact duplicate of a kept neighbor as redundant, and
+   treats equal-distance ties between *distinct* vectors as acceptable.
+2. **Shrinking.** When adding a back-edge overflows a neighbor's degree, the
+   same selection rule (not "drop the farthest") decides what to keep.
+
+`docs/benchmarks.md` measures the effect: with a lean graph ($M=8$,
+`ef_construction`=40) on 4,000 clustered points, recall@10 at `ef_search`=50
+is 0.88 with closest-$M$ linking and 1.00 with the heuristic; and the
+earlier "recall plateaus no matter how large `ef_search` gets" behavior
+documented in this repository's first benchmark run disappears — it was a
+symptom of the missing heuristic, not a property of HNSW.
+
+Vectors are L2-normalized on insertion, so cosine similarity is a single dot
+product and $d(a,b) = \sqrt{2 - 2\,a\cdot b}$ is monotone in it: all
+comparisons above can use the dot product directly.
+
 ### 4.5 Deletion is fundamentally hard, not an oversight
 
 Removing a node's edges outright can partition the graph — if node $v$ was
@@ -280,3 +321,74 @@ than raw dot product or Euclidean distance:
   (which internally computes cosine similarity, see `HNSWIndex._sim`) and
   any Euclidean-based ANN structure agree on the same nearest-neighbor
   ordering.
+
+---
+
+## 7. BM25 with an inverted index (`BM25Index`)
+
+The scoring function is unchanged from section 1; only the evaluation order
+differs. For a query term $t$ the index stores a postings list
+$P_t = \{(d, \mathrm{tf}_{t,d})\}$, so a query touches only documents in
+$\bigcup_{t \in q} P_t$ and costs $O\left(\sum_{t \in q} |P_t|\right)$ instead of $O(n \cdot |q|)$
+with a per-document term-frequency recount. For Zipf-distributed text the
+postings of discriminative (high-IDF) terms are short, which is exactly where
+BM25 puts its weight. Ties resolve to the earlier-indexed chunk so rankings are
+deterministic. See `docs/benchmarks.md` for the measured 12–15x speedup.
+
+`analyzer="english"` adds stopword removal and a conservative suffix stripper
+(plural, `-ing`, `-ed`). On BEIR SciFact it lifts nDCG@10 from 0.664 to 0.678
+(`docs/evaluation.md`).
+
+## 8. Groundedness and attribution (`ragforge.citations`)
+
+For an answer sentence $s$ with content-term set $T(s)$ (stopwords removed) and
+a retrieved sentence $c$ with term set $T(c)$, the lexical support is
+
+$$
+\mathrm{support}(s, c) = \frac{|T(s) \cap T(c)|}{|T(s)|}, \qquad
+\mathrm{support}(s) = \max_{c} \mathrm{support}(s, c),
+$$
+
+optionally blended with embedding cosine: $(1-w)\,\mathrm{support} + w\cos(e_s, e_c)$.
+A sentence is *supported* iff $\mathrm{support}(s) \ge \tau$, and the answer's
+groundedness is the supported fraction of sentences. The attribution is
+conservative by design: it is blind to paraphrase, so it errs toward flagging
+(false "unverified") rather than toward certifying (false "verified") — the
+safe direction for a hallucination signal. Character offsets are exact: the
+cited span is `chunk.start_char + offset_of_sentence_in_chunk`.
+
+## 9. Semantic cache threshold (`ragforge.cache`)
+
+A cached answer for query $q'$ is served for a new query $q$ iff
+$\cos(e_q, e_{q'}) \ge \theta$ within the same partition (retrieval
+parameters, namespace). A wrong hit costs correctness while a miss costs only
+latency, so the cost is asymmetric and $\theta$ defaults high (0.92). With
+unit-normalized embeddings $\cos = e_q \cdot e_{q'}$, and the lookup is a linear
+scan over at most `max_size` entries — adequate for the intended cache sizes;
+swap in an ANN index for very large caches.
+
+## 10. Quantization with rescoring (`ragforge.quantization`)
+
+*int8*: each dimension is mapped affinely to a byte, $c_d = \mathrm{round}((x_d - \ell_d)/\delta_d)$ with
+$\delta_d = (h_d - \ell_d)/255$, so the dot product with a query $q$ is
+$\sum_d q_d(\ell_d + \delta_d c_d) = b + \sum_d (q_d\delta_d)\,c_d$ with $b=\sum_d q_d\ell_d$ precomputed once per query.
+*binary*: one bit per dimension, $x_d > \mu_d$ (the dimension's mean); similarity is the normalized Hamming agreement.
+Both rank a candidate pool of `rescore_factor * k` on codes and re-rank it with the exact float dot product, which
+removes most quantization error because only the *ordering inside the pool* is left to the codes.
+
+## 11. Entity-graph diffusion (`ragforge.graph`)
+
+Chunks and entities form a bipartite graph with edge weights $\mathrm{idf}(e)=\ln(1+N/\mathrm{df}(e))$. Query entities
+seed a distribution $s$; activation spreads for a few steps as personalised PageRank with restart,
+$a_{t+1} = (1-\alpha)\,s + \alpha\,P a_t$ (decay $\alpha=0.6$ by default), alternating entity $\to$ chunk $\to$ entity.
+A second-hop chunk that shares only a bridge entity with a first-hop chunk receives mass after two steps, which is
+what lexical and dense rankers cannot do. Entities present in more than `max_entity_df` of the chunks are ignored
+as hubs (they connect everything and carry no information).
+
+## 12. Filtered HNSW search (`ragforge.ann`)
+
+With predicate $\phi$, the beam search still expands every node (so the graph stays navigable) but only nodes with
+$\phi=\text{true}$ enter the result heap. A visit budget bounds the walk; when it is exhausted before $k$ matches are
+found, the index scans exactly the rows satisfying $\phi$. The result is therefore either the usual approximate answer
+or the exact one, never a silently short list. Reachability is guaranteed by a pinned parent edge per node that
+neighbour pruning may not remove.
