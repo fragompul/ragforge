@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
-from ragforge import __version__
+from ragforge._version import __version__
 from ragforge.chunking import RecursiveCharacterChunker
 from ragforge.evaluation import EvalCase, evaluate_pipeline
+from ragforge.guardrails import Guardrails
 from ragforge.pipeline import RagPipeline
 from ragforge.reranking import (
     HeuristicReranker,
@@ -52,7 +55,35 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ann",
         action="store_true",
         help="Use the approximate HNSW vector backend instead of brute-force cosine scan "
-        "(recommended for large corpora; see docs/benchmarks.md)",
+        "(recommended for large corpora; see docs/benchmarks.md). Shorthand for --backend hnsw",
+    )
+    ingest_parser.add_argument(
+        "--backend",
+        choices=["brute_force", "hnsw", "numpy", "int8", "binary"],
+        default=None,
+        help="Vector backend: exact pure-Python scan, approximate HNSW graph, the exact "
+        "NumPy-accelerated scan (pip install 'ragforge[fast]'), or int8 / binary quantized "
+        "vectors with rescoring (4x / 32x smaller)",
+    )
+    ingest_parser.add_argument(
+        "--format",
+        choices=["json", "dir"],
+        default="json",
+        help="Index format: a single JSON file, or a memory-mapped directory "
+        "(incremental updates, near-instant open; brute_force/numpy/hnsw backends)",
+    )
+    ingest_parser.add_argument(
+        "--contextual",
+        choices=["none", "title", "lead"],
+        default="none",
+        help="Contextual retrieval: prepend the document title or opening sentence to each "
+        "chunk before indexing (answers and citations still use the original text)",
+    )
+    ingest_parser.add_argument(
+        "--analyzer",
+        choices=["simple", "english"],
+        default="simple",
+        help="BM25 text analyzer; 'english' drops stopwords and applies light stemming",
     )
 
     # Query subcommand
@@ -78,6 +109,18 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print a per-stage latency trace (fusion search, rerank, generate)",
     )
+    query_parser.add_argument(
+        "--agentic",
+        action="store_true",
+        help="Use the agentic loop (grade -> rewrite -> retry, abstain if evidence is weak)",
+    )
+    query_parser.add_argument(
+        "--cite",
+        action="store_true",
+        help="Attribute each answer sentence to source spans and print groundedness",
+    )
+    _add_guardrails_option(query_parser)
+    _add_route_option(query_parser)
 
     # Evaluate subcommand
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a pipeline against test cases")
@@ -114,8 +157,110 @@ def _build_parser() -> argparse.ArgumentParser:
         default="heuristic",
         help="Reranker strategy to apply (default: heuristic)",
     )
+    _add_guardrails_option(serve_parser)
+    _add_route_option(serve_parser)
+    serve_parser.add_argument(
+        "--asgi",
+        action="store_true",
+        help="Serve through uvicorn (ASGI, concurrent generation; pip install uvicorn) "
+        "instead of the built-in stdlib server",
+    )
+    serve_parser.add_argument(
+        "--api-key",
+        default=None,
+        help="Require 'Authorization: Bearer <key>' (ASGI mode only)",
+    )
+
+    # MCP subcommand
+    mcp_parser = subparsers.add_parser(
+        "mcp", help="Expose an index to AI assistants as a Model Context Protocol (stdio) server"
+    )
+    mcp_parser.add_argument(
+        "--index",
+        "-i",
+        default="ragforge_index.json",
+        help="Path to the saved pipeline index (default: ragforge_index.json)",
+    )
+    mcp_parser.add_argument(
+        "--allow-ingest",
+        action="store_true",
+        help="Also expose the ingest_document tool (the index stays read-only by default)",
+    )
+    mcp_parser.add_argument(
+        "--reranker",
+        choices=["none", "heuristic", "mmr"],
+        default="none",
+        help="Reranker strategy to apply (default: none)",
+    )
+    _add_guardrails_option(mcp_parser)
+    _add_route_option(mcp_parser)
+
+    # Chat subcommand
+    chat_parser = subparsers.add_parser(
+        "chat", help="Interactive terminal chat over an index (streaming, citations, agent mode)"
+    )
+    chat_parser.add_argument(
+        "--index",
+        "-i",
+        default="ragforge_index.json",
+        help="Path to the saved pipeline index (default: ragforge_index.json)",
+    )
+    chat_parser.add_argument("-k", type=int, default=3, help="Passages per answer")
+    chat_parser.add_argument(
+        "--reranker", choices=["none", "heuristic", "mmr"], default="none",
+        help="Reranker strategy to apply (default: none)",
+    )  # fmt: skip
+    _add_guardrails_option(chat_parser)
+    _add_route_option(chat_parser)
+
+    # Demo subcommand
+    demo_parser = subparsers.add_parser(
+        "demo", help="Guided, offline tour of hybrid retrieval, guardrails, citations and agents"
+    )
+    demo_parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
 
     return parser
+
+
+def _add_route_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--route",
+        action="store_true",
+        help="Per-query fusion weights: boost BM25 for identifiers / rare terms, vectors for "
+        "long natural-language questions",
+    )
+
+
+def _get_router(args: argparse.Namespace) -> Any:
+    if not getattr(args, "route", False):
+        return None
+    from ragforge.routing import QueryRouter
+
+    return QueryRouter()
+
+
+def load_pipeline(path: str | Path, **kwargs: Any) -> RagPipeline:
+    """Load a JSON index or a memory-mapped directory index (opened read-only)."""
+    if Path(path).is_dir():
+        from ragforge.storage import DiskIndex
+
+        disk = DiskIndex.open(path, readonly=True, **kwargs)
+        disk.pipeline._disk_index = disk  # type: ignore[attr-defined]  # keep the mapping alive
+        return disk.pipeline
+    return RagPipeline.load(path, **kwargs)
+
+
+def _add_guardrails_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--guardrails",
+        choices=["off", "flag", "sanitize", "drop"],
+        default="off",
+        help="Screen retrieved contexts for prompt injection and PII (default: off)",
+    )
+
+
+def _get_guardrails(mode: str) -> Guardrails | None:
+    return None if mode == "off" else Guardrails(action=mode)  # type: ignore[arg-type]
 
 
 def _get_reranker(strategy: str) -> Reranker:
@@ -135,7 +280,41 @@ def handle_ingest(args: argparse.Namespace) -> int:
     chunker = RecursiveCharacterChunker(
         chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap
     )
-    pipeline = RagPipeline(chunker=chunker, use_ann=args.ann)
+    backend = args.backend or ("hnsw" if args.ann else "brute_force")
+    contextualizer = None
+    if args.contextual != "none":
+        from ragforge.contextual import lead_context_fn, title_context_fn
+
+        contextualizer = title_context_fn() if args.contextual == "title" else lead_context_fn()
+    if args.format == "dir" and backend in ("int8", "binary"):
+        sys.stderr.write("Error: --format dir supports brute_force, numpy and hnsw backends.\n")
+        return 1
+    disk = None
+    try:
+        if args.format == "dir":
+            from ragforge.storage import DiskIndex
+
+            disk = DiskIndex.create(
+                args.index,
+                vector_backend=backend,
+                chunker=chunker,
+                bm25_analyzer=args.analyzer,
+                contextualizer=contextualizer,
+            )
+            pipeline = disk.pipeline
+        else:
+            pipeline = RagPipeline(
+                chunker=chunker,
+                vector_backend=backend,
+                bm25_analyzer=args.analyzer,
+                contextualizer=contextualizer,
+            )
+    except ImportError as exc:  # NumPy backend without the extra installed
+        sys.stderr.write(f"Error: {exc}\n")
+        return 1
+    except Exception as exc:  # e.g. an existing directory index
+        sys.stderr.write(f"Error: {exc}\n")
+        return 1
 
     files_to_ingest: list[Path] = []
     if source_path.is_file():
@@ -155,8 +334,11 @@ def handle_ingest(args: argparse.Namespace) -> int:
         try:
             content = file_path.read_text(encoding="utf-8")
             doc_id = str(file_path.stem)
-            chunks = pipeline.ingest(
-                doc_id=doc_id, text=content, metadata={"source": str(file_path)}
+            ingest = disk.ingest if disk is not None else pipeline.ingest
+            chunks = ingest(
+                doc_id=doc_id,
+                text=content,
+                metadata={"source": str(file_path), "title": doc_id},
             )
             total_chunks += len(chunks)
         except Exception as e:
@@ -164,9 +346,18 @@ def handle_ingest(args: argparse.Namespace) -> int:
 
     elapsed = time.perf_counter() - start_time
     output_index = Path(args.index)
-    pipeline.save(output_index)
+    if disk is not None:
+        disk.close()
+    else:
+        pipeline.save(output_index)
 
-    backend = "HNSW (approximate)" if args.ann else "brute-force (exact)"
+    backend = {
+        "hnsw": "HNSW (approximate)",
+        "numpy": "NumPy (exact, vectorized)",
+        "brute_force": "brute-force (exact)",
+        "int8": "int8-quantized (4x smaller, exact rescoring)",
+        "binary": "binary-quantized (32x smaller, exact rescoring)",
+    }[backend]
     print(
         f"Successfully ingested {len(files_to_ingest)} documents "
         f"({total_chunks} chunks) in {elapsed:.3f}s using the {backend} vector backend"
@@ -185,13 +376,32 @@ def handle_query(args: argparse.Namespace) -> int:
 
     reranker = _get_reranker(args.reranker)
     tracer = Tracer(exporters=[console_exporter]) if args.trace else None
-    pipeline = RagPipeline.load(index_path, reranker=reranker, tracer=tracer)
+    pipeline = load_pipeline(
+        index_path,
+        reranker=reranker,
+        tracer=tracer,
+        guardrails=_get_guardrails(args.guardrails),
+        router=_get_router(args),
+    )
 
     if args.trace:
         print("--- TRACE ---")
-    answer = pipeline.answer(args.query, k=args.k)
+    agent_result = None
+    if args.agentic:
+        from ragforge.agent import AgenticRag
+
+        agent_result = AgenticRag(pipeline).run(args.query, k=args.k)
+        answer = agent_result.answer
+    else:
+        answer = pipeline.answer(args.query, k=args.k)
     if args.trace:
         print("-------------\n")
+
+    if agent_result is not None:
+        print("\nAGENT STEPS:")
+        for step in agent_result.steps:
+            score = "" if step.score is None else f" (score {step.score:.2f})"
+            print(f"  - {step.kind:<9} {step.query}{score}")
 
     print("\n" + "=" * 60)
     print(f"QUERY: {answer.query}")
@@ -204,6 +414,20 @@ def handle_query(args: argparse.Namespace) -> int:
     for i, ctx in enumerate(answer.contexts, start=1):
         print(f"\n[{i}] Doc ID: {ctx.doc_id} | Score: {ctx.score:.4f} | Source: {ctx.provenance}")
         print(f"    {ctx.text}")
+        for finding in ctx.guardrails.get("findings", []):
+            print(f"    ! {finding['kind']}:{finding['rule']} -> {finding['excerpt']}")
+    if args.cite:
+        from ragforge.citations import attribute
+
+        cited = attribute(answer.answer, answer.contexts)
+        print("-" * 60)
+        print(f"CITATIONS (groundedness {cited.groundedness:.2f}):")
+        for sentence in cited.sentences:
+            status = "supported " if sentence.supported else "UNVERIFIED"
+            print(f"  [{status}] {sentence.text[:70]}")
+            for cite in sentence.citations:
+                span = f"chars {cite.start_char}-{cite.end_char}"
+                print(f"      -> [{cite.marker}] {cite.doc_id} {span}")
     print("=" * 60 + "\n")
     return 0
 
@@ -231,7 +455,7 @@ def handle_evaluate(args: argparse.Namespace) -> int:
         for c in cases_data
     ]
 
-    pipeline = RagPipeline.load(index_path)
+    pipeline = load_pipeline(index_path)
     summary = evaluate_pipeline(pipeline, eval_cases, k=args.k)
 
     print("\n" + summary.to_markdown_table() + "\n")
@@ -306,15 +530,90 @@ def handle_serve(args: argparse.Namespace) -> int:
         return 1
 
     reranker = _get_reranker(args.reranker)
-    pipeline = RagPipeline.load(index_path, reranker=reranker)
+    pipeline = load_pipeline(
+        index_path,
+        reranker=reranker,
+        guardrails=_get_guardrails(args.guardrails),
+        router=_get_router(args),
+    )
+
+    if args.asgi:
+        try:
+            import uvicorn
+        except ImportError:
+            sys.stderr.write("Error: --asgi needs uvicorn. Install it with: pip install uvicorn\n")
+            return 1
+        from ragforge.asgi import create_app
+
+        print(
+            f"Serving {pipeline.document_count} documents on http://{args.host}:{args.port} "
+            "(ASGI: concurrent generation)"
+        )
+        uvicorn.run(create_app(pipeline, api_key=args.api_key), host=args.host, port=args.port)
+        return 0
 
     print(
         f"Serving {pipeline.document_count} documents ({pipeline.chunk_count} chunks) "
         f"on http://{args.host}:{args.port}"
     )
-    print('Endpoints: GET /health, POST /query {"query": str, "k": int}')
+    print(
+        'Endpoints: GET /health, POST /query {"query": str, "k": int, "agentic": bool}, '
+        "POST /query/stream (SSE)"
+    )
     print("Press Ctrl+C to stop.")
     serve_forever_blocking(pipeline, host=args.host, port=args.port)
+    return 0
+
+
+def handle_mcp(args: argparse.Namespace) -> int:
+    from ragforge.mcp_server import serve_stdio
+
+    index_path = Path(args.index)
+    if not index_path.exists():
+        sys.stderr.write(
+            f"Error: Index file '{args.index}' does not exist. Run 'ragforge ingest' first.\n"
+        )
+        return 1
+
+    pipeline = load_pipeline(
+        index_path,
+        reranker=_get_reranker(args.reranker),
+        guardrails=_get_guardrails(args.guardrails),
+        router=_get_router(args),
+    )
+    # stdout is the protocol channel: everything human-readable goes to stderr.
+    sys.stderr.write(
+        f"ragforge MCP server ready: {pipeline.document_count} documents, "
+        f"{pipeline.chunk_count} chunks, ingest {'ON' if args.allow_ingest else 'off'}\n"
+    )
+    serve_stdio(pipeline, allow_ingest=args.allow_ingest)
+    return 0
+
+
+def handle_chat(args: argparse.Namespace) -> int:
+    from ragforge.chat import ChatState, run_chat
+
+    index_path = Path(args.index)
+    if not index_path.exists():
+        sys.stderr.write(
+            f"Error: Index file '{args.index}' does not exist. Run 'ragforge ingest' first.\n"
+        )
+        return 1
+    with contextlib.suppress(ImportError):  # line editing and history for input()
+        import readline  # noqa: F401
+    pipeline = load_pipeline(
+        index_path,
+        reranker=_get_reranker(args.reranker),
+        guardrails=_get_guardrails(args.guardrails),
+        router=_get_router(args),
+    )
+    return run_chat(pipeline, state=ChatState(k=args.k))
+
+
+def handle_demo(args: argparse.Namespace) -> int:
+    from ragforge.demo import run_demo
+
+    run_demo(color=False if args.no_color else None)
     return 0
 
 
@@ -332,6 +631,12 @@ def main(argv: list[str] | None = None) -> int:
         return handle_benchmark()
     if args.command == "serve":
         return handle_serve(args)
+    if args.command == "mcp":
+        return handle_mcp(args)
+    if args.command == "chat":
+        return handle_chat(args)
+    if args.command == "demo":
+        return handle_demo(args)
 
     parser.print_help()
     return 0
