@@ -8,8 +8,10 @@ Hybrid search leverages the complementary strengths of lexical and semantic retr
 
 from __future__ import annotations
 
+import heapq
 import json
 import math
+import operator
 import re
 from collections import Counter
 from collections.abc import Callable
@@ -19,7 +21,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from ragforge.ann import HNSWIndex
 from ragforge.chunking import Chunk
-from ragforge.embeddings import EmbedFn, cosine_similarity, hashing_embed
+from ragforge.embeddings import EmbedFn, cosine_similarity, hashing_embed, normalize_vector
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
@@ -28,6 +30,51 @@ FilterFn = Callable[[Chunk], bool]
 
 def _tokenize(text: str) -> list[str]:
     return _TOKEN_RE.findall(text.lower())
+
+
+ENGLISH_STOPWORDS = frozenset(
+    [
+        "a", "about", "above", "after", "again", "all", "also", "am", "an", "and", "any", "are",
+        "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but",
+        "by", "can", "could", "did", "do", "does", "doing", "down", "during", "each", "few", "for",
+        "from", "further", "had", "has", "have", "having", "he", "her", "here", "hers", "him",
+        "his", "how", "i", "if", "in", "into", "is", "it", "its", "just", "me", "more", "most",
+        "my", "no", "nor", "not", "now", "of", "off", "on", "once", "only", "or", "other", "our",
+        "out", "over", "own", "same", "she", "should", "so", "some", "such", "than", "that",
+        "the", "their", "them", "then", "there", "these", "they", "this", "those", "through",
+        "to", "too", "under", "until", "up", "very", "was", "we", "were", "what", "when",
+        "where", "which", "while", "who", "whom", "why", "will", "with", "would", "you", "your",
+    ]
+)  # fmt: skip
+
+
+def _light_stem(token: str) -> str:
+    """A tiny suffix stripper (plural / -ing / -ed): conservative, dependency-free."""
+    n = len(token)
+    if n > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if n > 5 and token.endswith("sses"):
+        return token[:-2]
+    if n > 5 and token.endswith("ing"):
+        return token[:-3]
+    if n > 4 and token.endswith("ed"):
+        return token[:-2]
+    if n > 4 and token.endswith(("ches", "shes", "xes", "zes")):
+        return token[:-2]
+    if n > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
+def english_analyzer(text: str) -> list[str]:
+    """Lowercase, drop stopwords, light-stem. Numbers and identifiers pass through."""
+    return [_light_stem(t) for t in _tokenize(text) if t not in ENGLISH_STOPWORDS]
+
+
+_ANALYZERS: dict[str, Callable[[str], list[str]]] = {
+    "simple": _tokenize,
+    "english": english_analyzer,
+}
 
 
 @dataclass
@@ -41,69 +88,72 @@ class ScoredChunk:
 
 
 class BM25Index:
-    """A self-contained Okapi BM25 implementation with document updates and filtering."""
+    """A self-contained Okapi BM25 implementation backed by an inverted index.
 
-    def __init__(self, k1: float = 1.5, b: float = 0.75) -> None:
+    Postings (``term -> {chunk position: term frequency}``) are maintained
+    incrementally on :meth:`add`, so a query only touches chunks that contain
+    at least one query term -- ``O(sum of postings lengths)`` instead of
+    re-tokenizing and scanning every chunk. Document updates (``delete``) and
+    metadata filtering are supported.
+
+    ``analyzer="simple"`` (default) lowercases and splits on non-alphanumerics;
+    ``analyzer="english"`` additionally drops stopwords and applies a light
+    stemmer, which noticeably improves ranking on natural-language queries.
+    """
+
+    def __init__(self, k1: float = 1.5, b: float = 0.75, analyzer: str = "simple") -> None:
         if k1 < 0:
             raise ValueError(f"k1 must be non-negative, got {k1}")
         if not 0.0 <= b <= 1.0:
             raise ValueError(f"b must be between 0.0 and 1.0, got {b}")
+        if analyzer not in _ANALYZERS:
+            raise ValueError(f"analyzer must be one of {sorted(_ANALYZERS)}, got {analyzer!r}")
 
         self.k1 = k1
         self.b = b
+        self.analyzer = analyzer
+        self._analyze = _ANALYZERS[analyzer]
         self._chunks: list[Chunk] = []
-        self._doc_tokens: list[list[str]] = []
-        self._doc_freq: Counter[str] = Counter()
+        self._doc_lens: list[int] = []
+        self._postings: dict[str, dict[int, int]] = {}
+        self._total_len = 0
         self._avg_doc_len = 0.0
 
     def add(self, chunks: list[Chunk]) -> None:
         """Add chunks to the BM25 index and update term statistics."""
         for chunk in chunks:
-            tokens = _tokenize(chunk.text)
+            position = len(self._chunks)
+            tokens = self._analyze(chunk.index_text)
             self._chunks.append(chunk)
-            self._doc_tokens.append(tokens)
-            for term in set(tokens):
-                self._doc_freq[term] += 1
+            self._doc_lens.append(len(tokens))
+            self._total_len += len(tokens)
+            for term, tf in Counter(tokens).items():
+                self._postings.setdefault(term, {})[position] = tf
 
-        if self._doc_tokens:
-            self._avg_doc_len = sum(len(t) for t in self._doc_tokens) / len(self._doc_tokens)
+        self._avg_doc_len = self._total_len / len(self._chunks) if self._chunks else 0.0
 
     def delete(self, doc_id: str) -> int:
-        """Remove all chunks associated with `doc_id` and rebuild term frequencies."""
-        initial_count = len(self._chunks)
-        new_chunks: list[Chunk] = []
-        new_doc_tokens: list[list[str]] = []
-        new_doc_freq: Counter[str] = Counter()
-
-        for chunk, tokens in zip(self._chunks, self._doc_tokens, strict=True):
-            if chunk.doc_id != doc_id:
-                new_chunks.append(chunk)
-                new_doc_tokens.append(tokens)
-                for term in set(tokens):
-                    new_doc_freq[term] += 1
-
-        self._chunks = new_chunks
-        self._doc_tokens = new_doc_tokens
-        self._doc_freq = new_doc_freq
-        self._avg_doc_len = (
-            sum(len(t) for t in self._doc_tokens) / len(self._doc_tokens)
-            if self._doc_tokens
-            else 0.0
-        )
-        return initial_count - len(self._chunks)
+        """Remove all chunks associated with `doc_id` and rebuild the postings."""
+        kept = [c for c in self._chunks if c.doc_id != doc_id]
+        removed = len(self._chunks) - len(kept)
+        if removed:
+            self.clear()
+            self.add(kept)
+        return removed
 
     def clear(self) -> None:
         """Clear all indexed chunks and reset statistics."""
         self._chunks = []
-        self._doc_tokens = []
-        self._doc_freq = Counter()
+        self._doc_lens = []
+        self._postings = {}
+        self._total_len = 0
         self._avg_doc_len = 0.0
 
     def _idf(self, term: str) -> float:
         n = len(self._chunks)
         if n == 0:
             return 0.0
-        df = self._doc_freq.get(term, 0)
+        df = len(self._postings.get(term, ()))
         return math.log((n - df + 0.5) / (df + 0.5) + 1.0)
 
     def search(
@@ -116,45 +166,52 @@ class BM25Index:
         if k <= 0:
             return []
 
-        query_terms = _tokenize(query)
+        query_terms = self._analyze(query)
         if not query_terms or not self._chunks:
             return []
 
-        scored: list[ScoredChunk] = []
-        for chunk, tokens in zip(self._chunks, self._doc_tokens, strict=True):
-            if filter_fn is not None and not filter_fn(chunk):
+        avg_len = max(self._avg_doc_len, 1e-9)
+        scores: dict[int, float] = {}
+        allowed: dict[int, bool] = {}
+        for term in query_terms:
+            postings = self._postings.get(term)
+            if not postings:
                 continue
-
-            term_freqs = Counter(tokens)
-            doc_len = len(tokens)
-            score = 0.0
-            for term in query_terms:
-                if term not in term_freqs:
-                    continue
-                tf = term_freqs[term]
-                idf = self._idf(term)
-                length_norm = 1.0 - self.b + self.b * doc_len / max(self._avg_doc_len, 1e-9)
+            idf = self._idf(term)
+            for position, tf in postings.items():
+                if filter_fn is not None:
+                    if position not in allowed:
+                        allowed[position] = filter_fn(self._chunks[position])
+                    if not allowed[position]:
+                        continue
+                length_norm = 1.0 - self.b + self.b * self._doc_lens[position] / avg_len
                 denom = tf + self.k1 * length_norm
-                score += idf * (tf * (self.k1 + 1.0)) / denom
+                scores[position] = scores.get(position, 0.0) + idf * (tf * (self.k1 + 1.0)) / denom
 
-            if score > 0:
-                scored.append(ScoredChunk(chunk=chunk, score=score, provenance="bm25"))
-
-        scored.sort(key=lambda sc: sc.score, reverse=True)
-        return scored[:k]
+        # Ties resolve to the earlier-indexed chunk, keeping rankings deterministic.
+        ranked = heapq.nsmallest(k, ((-score, pos) for pos, score in scores.items() if score > 0))
+        return [
+            ScoredChunk(chunk=self._chunks[pos], score=-neg_score, provenance="bm25")
+            for neg_score, pos in ranked
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize BM25 index state to a dictionary."""
-        return {
+        payload: dict[str, Any] = {
             "k1": self.k1,
             "b": self.b,
             "chunks": [c.to_dict() for c in self._chunks],
         }
+        if self.analyzer != "simple":
+            payload["analyzer"] = self.analyzer
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BM25Index:
         """Deserialize BM25 index state from a dictionary."""
-        index = cls(k1=data.get("k1", 1.5), b=data.get("b", 0.75))
+        index = cls(
+            k1=data.get("k1", 1.5), b=data.get("b", 0.75), analyzer=data.get("analyzer", "simple")
+        )
         chunks = [Chunk.from_dict(c) for c in data.get("chunks", [])]
         index.add(chunks)
         return index
@@ -184,7 +241,7 @@ class VectorIndex:
         """Embed and index new chunks."""
         for chunk in chunks:
             self._chunks.append(chunk)
-            self._vectors.append(self.embed_fn(chunk.text))
+            self._vectors.append(self.embed_fn(chunk.index_text))
 
     def add_vectors(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         """Index chunks with precomputed embeddings."""
@@ -304,13 +361,13 @@ class ApproxVectorIndex:
     points); below that, ``VectorIndex`` is simpler and equally fast in
     absolute terms.
 
-    Filtering caveat: HNSW graph traversal cannot apply ``filter_fn`` while
-    walking the graph (unlike the brute-force index, which filters every
-    candidate). Filtered searches instead over-fetch nearest neighbors and
-    filter the result set, which can under-return results when a filter is
-    very selective relative to ``ef_search`` -- a well-known limitation of
-    graph-based ANN indices also present in production systems (e.g. HNSWLIB,
-    Qdrant's pre-filtering mode).
+    Filtered search: ``filter_fn`` is applied *inside* the graph traversal -- every node
+    still helps navigation, but only chunks that pass the filter can become results, and
+    the beam is widened until it holds ``ef_search`` accepted candidates. When the filter
+    is so selective that the (visit-capped) traversal cannot find ``k`` matches, the index
+    falls back to an exact scan over the chunks that pass, so a filtered query returns
+    the true top-``k`` matches whenever that many exist (and never silently under-returns,
+    which the earlier over-fetch-then-filter approach could).
     """
 
     def __init__(
@@ -319,16 +376,18 @@ class ApproxVectorIndex:
         m: int = 16,
         ef_construction: int = 200,
         ef_search: int = 50,
+        filter_max_visits: int = 2000,
     ) -> None:
         self.embed_fn = embed_fn
         self.ef_search = ef_search
+        self.filter_max_visits = filter_max_visits
         self._graph = HNSWIndex(m=m, ef_construction=ef_construction)
         self._chunks_by_node: dict[int, Chunk] = {}
 
     def add(self, chunks: list[Chunk]) -> None:
         """Embed and index new chunks."""
         for chunk in chunks:
-            self.add_vectors([chunk], [self.embed_fn(chunk.text)])
+            self.add_vectors([chunk], [self.embed_fn(chunk.index_text)])
 
     def add_vectors(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         """Index chunks with precomputed embeddings."""
@@ -360,33 +419,68 @@ class ApproxVectorIndex:
     def search(
         self, query: str, k: int = 5, filter_fn: FilterFn | None = None
     ) -> list[ScoredChunk]:
-        """Search the HNSW graph with optional (over-fetch based) metadata filtering."""
+        """Search the HNSW graph; ``filter_fn`` restricts results (see class docstring)."""
         if k <= 0 or not self._chunks_by_node:
             return []
 
         query_vec = self.embed_fn(query)
-        fetch_k = (
-            k if filter_fn is None else min(len(self._chunks_by_node), max(k * 10, self.ef_search))
+        ef = max(self.ef_search, k)
+        if filter_fn is None:
+            raw = self._graph.search(query_vec, k=k, ef_search=ef)
+            return [
+                ScoredChunk(chunk=self._chunks_by_node[nid], score=sim, provenance="vector:hnsw")
+                for sim, nid in raw
+                if nid in self._chunks_by_node
+            ]
+
+        verdicts: dict[int, bool] = {}
+
+        def accept(node_id: int) -> bool:
+            if node_id not in verdicts:
+                chunk = self._chunks_by_node.get(node_id)
+                verdicts[node_id] = chunk is not None and filter_fn(chunk)
+            return verdicts[node_id]
+
+        raw = self._graph.search(
+            query_vec, k=k, ef_search=ef, accept=accept, max_visits=self.filter_max_visits
         )
-        raw = self._graph.search(query_vec, k=fetch_k, ef_search=max(self.ef_search, fetch_k))
+        provenance = "vector:hnsw"
+        if len(raw) < k:
+            # Selective filter: finish with an exact scan over the chunks that pass it.
+            unit = normalize_vector(query_vec)
+            raw = heapq.nlargest(
+                k,
+                (
+                    (float(sum(map(operator.mul, unit, self._graph.vector(nid)))), nid)
+                    for nid in self._chunks_by_node
+                    if accept(nid)
+                ),
+                key=lambda pair: (pair[0], -pair[1]),
+            )
+            provenance = "vector:hnsw+scan"
+        return [
+            ScoredChunk(chunk=self._chunks_by_node[nid], score=sim, provenance=provenance)
+            for sim, nid in raw
+        ]
 
-        scored: list[ScoredChunk] = []
-        for sim, node_id in raw:
-            chunk = self._chunks_by_node.get(node_id)
-            if chunk is None:
-                continue
-            if filter_fn is not None and not filter_fn(chunk):
-                continue
-            scored.append(ScoredChunk(chunk=chunk, score=sim, provenance="vector:hnsw"))
-            if len(scored) >= k:
-                break
+    def compact(self) -> int:
+        """Rebuild the graph without tombstones (see :meth:`HNSWIndex.compact`).
 
-        return scored
+        Returns the number of dead nodes reclaimed.
+        """
+        reclaimed = self._graph.size_including_tombstones - len(self._graph)
+        if reclaimed:
+            mapping = self._graph.compact()
+            self._chunks_by_node = {
+                mapping[old]: chunk for old, chunk in self._chunks_by_node.items() if old in mapping
+            }
+        return reclaimed
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the HNSW graph and chunk mapping to a dictionary."""
         return {
             "ef_search": self.ef_search,
+            "filter_max_visits": self.filter_max_visits,
             "graph": self._graph.to_dict(),
             "chunks_by_node": {str(k): c.to_dict() for k, c in self._chunks_by_node.items()},
         }
@@ -394,7 +488,11 @@ class ApproxVectorIndex:
     @classmethod
     def from_dict(cls, data: dict[str, Any], embed_fn: EmbedFn | None = None) -> ApproxVectorIndex:
         """Deserialize an approximate vector index from a dictionary."""
-        index = cls(embed_fn=embed_fn or hashing_embed, ef_search=data.get("ef_search", 50))
+        index = cls(
+            embed_fn=embed_fn or hashing_embed,
+            ef_search=data.get("ef_search", 50),
+            filter_max_visits=data.get("filter_max_visits", 2000),
+        )
         index._graph = HNSWIndex.from_dict(data["graph"])
         index._chunks_by_node = {
             int(k): Chunk.from_dict(v) for k, v in data.get("chunks_by_node", {}).items()
