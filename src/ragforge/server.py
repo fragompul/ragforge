@@ -13,8 +13,15 @@ anything at startup.
 
 Endpoints:
     GET  /health   -> {"status": "ok", "document_count": N, "chunk_count": M}
-    POST /query    -> body {"query": str, "k": int=5, "candidate_pool": int=20}
+    POST /query    -> body {"query": str, "k": int=5, "candidate_pool": int=20,
+                            "agentic": bool=false}
                        response: the same JSON shape as ``RagAnswer.to_dict()``
+                       (or ``AgentResult.to_dict()`` when ``agentic`` is true)
+    POST /query/stream -> same body; Server-Sent Events: ``contexts``, then one
+                       ``token`` event per piece of the answer, then ``done``
+                       (the full ``RagAnswer``), or ``error``.
+
+Requests are bounded (1 MB body, ``k`` <= 100) so a single client cannot exhaust memory.
 
 This is intentionally not a general-purpose web framework: no routing DSL,
 no middleware, no async request handling (``ThreadingHTTPServer`` handles
@@ -34,6 +41,10 @@ from typing import Any
 from ragforge.pipeline import RagPipeline
 
 logger = logging.getLogger("ragforge.server")
+
+MAX_BODY_BYTES = 1_000_000
+MAX_K = 100
+MAX_CANDIDATE_POOL = 1000
 
 
 def _make_handler(pipeline: RagPipeline) -> type[BaseHTTPRequestHandler]:
@@ -61,28 +72,67 @@ def _make_handler(pipeline: RagPipeline) -> type[BaseHTTPRequestHandler]:
             else:
                 self._send_json(404, {"error": f"Unknown path: {self.path}"})
 
-        def do_POST(self) -> None:
-            if self.path != "/query":
-                self._send_json(404, {"error": f"Unknown path: {self.path}"})
-                return
-
+        def _read_json(self) -> dict[str, Any] | None:
+            """Parse the request body, replying with an error and returning ``None`` on failure."""
             content_length = int(self.headers.get("Content-Length") or 0)
+            if content_length > MAX_BODY_BYTES:
+                self._send_json(413, {"error": f"Request body exceeds {MAX_BODY_BYTES} bytes"})
+                return None
             raw_body = self.rfile.read(content_length) if content_length else b"{}"
             try:
                 payload = json.loads(raw_body or b"{}")
             except json.JSONDecodeError:
                 self._send_json(400, {"error": "Request body must be valid JSON"})
-                return
+                return None
+            if not isinstance(payload, dict):
+                self._send_json(400, {"error": "Request body must be a JSON object"})
+                return None
+            return payload
 
+        def _parse_query(self, payload: dict[str, Any]) -> tuple[str, int, int] | None:
             query = payload.get("query")
             if not isinstance(query, str) or not query.strip():
                 self._send_json(400, {"error": "'query' must be a non-empty string"})
+                return None
+            try:
+                k = int(payload.get("k", 5))
+                candidate_pool = int(payload.get("candidate_pool", 20))
+            except (TypeError, ValueError):
+                self._send_json(400, {"error": "'k' and 'candidate_pool' must be integers"})
+                return None
+            if not 1 <= k <= MAX_K or not 1 <= candidate_pool <= MAX_CANDIDATE_POOL:
+                self._send_json(
+                    400,
+                    {"error": f"'k' must be in [1, {MAX_K}], 'candidate_pool' in "
+                     f"[1, {MAX_CANDIDATE_POOL}]"},
+                )  # fmt: skip
+                return None
+            return query, k, candidate_pool
+
+        def do_POST(self) -> None:
+            if self.path not in ("/query", "/query/stream"):
+                self._send_json(404, {"error": f"Unknown path: {self.path}"})
                 return
 
-            k = int(payload.get("k", 5))
-            candidate_pool = int(payload.get("candidate_pool", 20))
+            payload = self._read_json()
+            if payload is None:
+                return
+            parsed = self._parse_query(payload)
+            if parsed is None:
+                return
+            query, k, candidate_pool = parsed
+
+            if self.path == "/query/stream":
+                self._stream(query, k, candidate_pool)
+                return
 
             try:
+                if payload.get("agentic"):
+                    from ragforge.agent import AgenticRag
+
+                    agent = AgenticRag(pipeline).run(query, k=k, candidate_pool=candidate_pool)
+                    self._send_json(200, agent.to_dict())
+                    return
                 answer = pipeline.answer(query, k=k, candidate_pool=candidate_pool)
             except Exception as exc:
                 logger.exception("Error answering query %r", query)
@@ -90,6 +140,30 @@ def _make_handler(pipeline: RagPipeline) -> type[BaseHTTPRequestHandler]:
                 return
 
             self._send_json(200, answer.to_dict())
+
+        def _send_event(self, event: str, data: dict[str, Any]) -> None:
+            chunk = f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+        def _stream(self, query: str, k: int, candidate_pool: int) -> None:
+            """Server-Sent Events: ``contexts`` -> many ``token`` -> ``done`` (or ``error``)."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                for event in pipeline.answer_stream(query, k=k, candidate_pool=candidate_pool):
+                    if event["type"] == "done":
+                        self._send_event("done", event["answer"].to_dict())
+                    else:
+                        self._send_event(event["type"], event)
+            except (BrokenPipeError, ConnectionResetError):
+                logger.info("Client disconnected during stream for %r", query)
+            except Exception as exc:
+                logger.exception("Error streaming query %r", query)
+                self._send_event("error", {"error": str(exc)})
 
         def log_message(self, format_str: str, *args: Any) -> None:
             logger.info("%s - %s", self.address_string(), format_str % args)
