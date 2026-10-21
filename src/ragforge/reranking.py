@@ -141,17 +141,29 @@ class MaxMarginalRelevanceReranker(Reranker):
     - ``lambda_mult = 1.0``: Pure relevance (identical to standard vector ranking).
     - ``lambda_mult = 0.0``: Pure diversity / maximal novelty.
     - Default ``lambda_mult = 0.7`` provides balanced relevance with non-redundant coverage.
+
+    ``relevance`` chooses what "relevant" means in that formula:
+
+    - ``"embedding"`` (default): cosine between the query and chunk embeddings, i.e. MMR
+      re-ranks by dense similarity alone.
+    - ``"fused"``: the candidate's incoming retrieval score (e.g. hybrid RRF), min-max
+      normalized to ``[0, 1]``. This preserves the lexical signal that the first stage
+      already computed, and applies MMR purely as a diversity pass on top of it.
     """
 
     def __init__(
         self,
         lambda_mult: float = 0.7,
         embed_fn: EmbedFn = hashing_embed,
+        relevance: str = "embedding",
     ) -> None:
         if not 0.0 <= lambda_mult <= 1.0:
             raise ValueError(f"lambda_mult must be between 0.0 and 1.0, got {lambda_mult}")
+        if relevance not in ("embedding", "fused"):
+            raise ValueError(f"relevance must be 'embedding' or 'fused', got {relevance!r}")
         self.lambda_mult = lambda_mult
         self.embed_fn = embed_fn
+        self.relevance = relevance
 
     def rerank(self, query: str, candidates: list[ScoredChunk], k: int) -> list[ScoredChunk]:
         if k <= 0 or not candidates:
@@ -162,7 +174,13 @@ class MaxMarginalRelevanceReranker(Reranker):
         candidate_vecs = [self.embed_fn(c.chunk.text) for c in candidates]
 
         # Compute query similarities
-        query_sims = [cosine_similarity(query_vec, v) for v in candidate_vecs]
+        if self.relevance == "fused":
+            scores = [c.score for c in candidates]
+            low, high = min(scores), max(scores)
+            span = high - low
+            query_sims = [(x - low) / span if span > 0 else 1.0 for x in scores]
+        else:
+            query_sims = [cosine_similarity(query_vec, v) for v in candidate_vecs]
 
         selected_indices: list[int] = []
         selected_scores: list[float] = []
