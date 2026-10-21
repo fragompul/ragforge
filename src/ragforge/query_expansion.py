@@ -83,6 +83,41 @@ def llm_query_expansion_fn(
     return _expand
 
 
+def hyde_expansion_fn(
+    complete_fn: Callable[[str], str], include_question_style: bool = False
+) -> QueryExpansionFn:
+    """HyDE (Hypothetical Document Embeddings): search with a *generated answer passage*.
+
+    Questions and answers live in different parts of embedding space ("How tall is the
+    tower?" vs. "The tower is 330 m tall."). HyDE (Gao et al., 2022) asks a model to write
+    a plausible answer passage and retrieves with that instead of -- here: in addition to --
+    the question, so the query looks like the documents it should match. The passage may be
+    factually wrong; it only has to be *about the right things*. Plug the result into
+    ``RagPipeline(query_expansion_fn=...)``; the original query is always searched too.
+
+    Args:
+        complete_fn: ``prompt -> text`` (see :mod:`ragforge.llm_providers`).
+        include_question_style: Also return a keyword-style rewrite request result.
+    """
+
+    def _expand(query: str) -> list[str]:
+        passage = complete_fn(
+            "Write a short passage (2-4 sentences) that directly answers the question below, "
+            "as it might appear in an encyclopedia or documentation page. Do not mention "
+            f"that you are guessing.\n\nQuestion: {query}"
+        ).strip()
+        variants = [passage] if passage else []
+        if include_question_style:
+            keywords = complete_fn(
+                f"List the key search terms for this question, space separated: {query}"
+            ).strip()
+            if keywords:
+                variants.append(keywords)
+        return variants
+
+    return _expand
+
+
 class MultiQueryRetriever:
     """Fans a query out into rewritten variants and fuses results via RRF.
 
