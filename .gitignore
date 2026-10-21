@@ -25,3 +25,8 @@ htmlcov/
 *.log
 scratch/
 
+site/
+data/
+.hypothesis/
+mutants/
+.mutmut-cache/
