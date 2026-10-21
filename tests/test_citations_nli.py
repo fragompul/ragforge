@@ -106,7 +106,7 @@ def test_invalid_nli_arguments(kwargs):
 def test_nli_cross_encoder_adapter_reads_labels_and_softmaxes():
     import types
 
-    import numpy as np
+    np = pytest.importorskip("numpy")
 
     class Stub:
         config = types.SimpleNamespace(id2label={0: "contradiction", 1: "entailment", 2: "neutral"})
